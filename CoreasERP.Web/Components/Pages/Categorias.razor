@@ -1,0 +1,123 @@
+@page "/categorias"
+@inject ICategoryService CategoryService
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1">Categorías de Productos</h4>
+        <p class="text-muted small mb-0">Organización y clasificación de familias de artículos</p>
+    </div>
+    <button class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="NuevaCategoria">
+        + Nueva Categoría
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(FeedbackMessage))
+{
+    <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small mb-3">
+        @FeedbackMessage
+        <button type="button" class="btn-close py-2" @onclick="() => FeedbackMessage = null"></button>
+    </div>
+}
+
+<div class="row g-3">
+    @if (isLoading)
+    {
+        <div class="col-12 text-center py-5">
+            <div class="spinner-border text-success"></div>
+            <div class="mt-2 text-muted small">Cargando categorías...</div>
+        </div>
+    }
+    else if (!ListaCategorias.Any())
+    {
+        <div class="col-12 text-center py-5 text-muted">
+            <div class="mb-2 text-muted">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+            </div>
+            <div>No hay categorías registradas</div>
+        </div>
+    }
+    else
+    {
+        @foreach (var cat in ListaCategorias)
+        {
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="card border-0 shadow-sm rounded-3 h-100 p-3 bg-white">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <div>
+                                <h6 class="fw-bold mb-0 text-dark">@cat.Nombre</h6>
+                                <span class="badge bg-success bg-opacity-10 text-success small mt-1">
+                                    @cat.TotalProductos productos
+                                </span>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-secondary py-1 px-2" type="button" @onclick="() => Editar(cat)">
+                                Editar
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger py-1 px-2" type="button" @onclick="() => Eliminar(cat)">
+                                Eliminar
+                            </button>
+                        </div>
+                    </div>
+
+                    <p class="text-muted small mb-0 mt-2">
+                        @(string.IsNullOrEmpty(cat.Descripcion) ? "Sin descripción" : cat.Descripcion)
+                    </p>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<CategoryModal @bind-IsOpen="isModalOpen" CategoriaEdit="@CategoriaSeleccionada" OnSaved="CargarCategorias" />
+
+@code {
+    private List<CategoriaDto> ListaCategorias = new();
+    private bool isLoading = true;
+    private bool isModalOpen;
+    private CategoriaDto? CategoriaSeleccionada;
+    private string? FeedbackMessage;
+    private bool isSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarCategorias();
+    }
+
+    private async Task CargarCategorias()
+    {
+        isLoading = true;
+        try
+        {
+            ListaCategorias = await CategoryService.GetAllWithCountAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void NuevaCategoria()
+    {
+        CategoriaSeleccionada = null;
+        isModalOpen = true;
+    }
+
+    private void Editar(CategoriaDto c)
+    {
+        CategoriaSeleccionada = c;
+        isModalOpen = true;
+    }
+
+    private async Task Eliminar(CategoriaDto c)
+    {
+        var result = await CategoryService.DeleteAsync(c.IdCategoria);
+        isSuccess = result.Success;
+        FeedbackMessage = result.Message;
+        if (result.Success)
+        {
+            await CargarCategorias();
+        }
+    }
+}

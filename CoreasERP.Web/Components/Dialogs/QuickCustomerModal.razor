@@ -1,0 +1,174 @@
+@inject ICustomerService CustomerService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" @onclick="Close">
+        <div class="modal-content-custom" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    <h6 class="mb-0 fw-bold">Nuevo Cliente Rápido</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close"></button>
+            </div>
+
+            <div class="p-4">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Tipo de Persona</label>
+                    <div class="d-flex gap-2">
+                        <button type="button" 
+                                class="btn btn-sm flex-fill @(Model.TipoPersona == "Natural" ? "text-white" : "btn-outline-secondary")"
+                                style="@(Model.TipoPersona == "Natural" ? "background-color: #15803D; border-color: #15803D;" : "")"
+                                @onclick='() => SetTipo("Natural")'>
+                            Persona Natural
+                        </button>
+                        <button type="button" 
+                                class="btn btn-sm flex-fill @(Model.TipoPersona == "Juridica" ? "text-white" : "btn-outline-secondary")"
+                                style="@(Model.TipoPersona == "Juridica" ? "background-color: #15803D; border-color: #15803D;" : "")"
+                                @onclick='() => SetTipo("Juridica")'>
+                            Empresa (Jurídica)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">
+                        @(Model.TipoPersona == "Natural" ? "Nombre Completo *" : "Razón Social *")
+                    </label>
+                    <input type="text" class="form-control" @bind="Model.Nombre" placeholder="Ej. Juan Pérez" />
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Tipo Doc.</label>
+                        <select class="form-select form-select-sm" @bind="Model.TipoDocumento">
+                            <option value="DUI">DUI</option>
+                            <option value="NIT">NIT</option>
+                            <option value="Pasaporte">Pasaporte</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Número Doc.</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.NumDocumento" placeholder="00000000-0" />
+                    </div>
+                </div>
+
+                @if (Model.TipoPersona == "Juridica")
+                {
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold">NRC</label>
+                            <input type="text" class="form-control form-control-sm" @bind="Model.Nrc" placeholder="123456-7" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold">Giro Comercial</label>
+                            <input type="text" class="form-control form-control-sm" @bind="Model.Giro" placeholder="Comercio" />
+                        </div>
+                    </div>
+                }
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Teléfono</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.Telefono" placeholder="7000-0000" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Email</label>
+                        <input type="email" class="form-control form-control-sm" @bind="Model.Email" placeholder="correo@cliente.com" />
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Dirección</label>
+                    <input type="text" class="form-control form-control-sm" @bind="Model.Direccion" placeholder="Dirección de entrega" />
+                </div>
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mb-0">
+                        @ErrorMessage
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="Close">Cancelar</button>
+                <button type="button" class="btn text-white btn-sm px-3" style="background-color: #15803D; border-color: #15803D;" @onclick="Guardar" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Guardando...</span>
+                    }
+                    else
+                    {
+                        <span>Guardar Cliente</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback<Cliente> OnCreated { get; set; }
+
+    private Cliente Model = new();
+    private bool isSaving;
+    private string? ErrorMessage;
+    private bool _wasOpen;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            _wasOpen = true;
+            Model = new Cliente { TipoPersona = "Natural", TipoDocumento = "DUI" };
+            ErrorMessage = null;
+            isSaving = false;
+        }
+        else if (!IsOpen)
+        {
+            _wasOpen = false;
+        }
+    }
+
+    private void SetTipo(string tipo)
+    {
+        Model.TipoPersona = tipo;
+        Model.TipoDocumento = tipo == "Juridica" ? "NIT" : "DUI";
+    }
+
+    private async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(Model.Nombre))
+        {
+            ErrorMessage = "El nombre es obligatorio.";
+            return;
+        }
+
+        isSaving = true;
+        ErrorMessage = null;
+
+        var result = await CustomerService.SaveAsync(Model);
+        isSaving = false;
+
+        if (result.Success && result.Cliente != null)
+        {
+            await Close();
+            await OnCreated.InvokeAsync(result.Cliente);
+        }
+        else
+        {
+            ErrorMessage = result.Message;
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        _wasOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

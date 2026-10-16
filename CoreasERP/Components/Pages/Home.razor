@@ -1,0 +1,641 @@
+@page "/"
+@page "/dashboard"
+@inject IDashboardService DashboardService
+@inject IExcelExportService ExcelExportService
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+@inject IAuthService AuthService
+
+@if (!string.IsNullOrEmpty(MensajeExportacion))
+{
+    <div class="alert @(ExportacionExitosa ? "alert-success border-success" : "alert-danger border-danger") alert-dismissible fade show shadow-sm mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2" role="alert">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <strong>@(ExportacionExitosa ? "Excel generado y descargado exitosamente" : "Error en la exportación")</strong>
+            </div>
+            <div class="small mt-1">@MensajeExportacion</div>
+            @if (!string.IsNullOrEmpty(UltimaRutaDescargada))
+            {
+                <div class="small text-muted font-monospace mt-1">
+                    Guardado en: @UltimaRutaDescargada
+                </div>
+            }
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            @if (ExportacionExitosa && !string.IsNullOrEmpty(UltimaRutaDescargada))
+            {
+                <button class="btn btn-sm btn-success d-flex align-items-center gap-1 shadow-sm" @onclick="AbrirArchivoExcel">
+                    Abrir Excel
+                </button>
+                <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 shadow-sm" @onclick="AbrirCarpetaExcel">
+                    Ver en Carpeta
+                </button>
+            }
+            <button type="button" class="btn-close ms-2" @onclick='() => MensajeExportacion = null'></button>
+        </div>
+    </div>
+}
+
+<!-- Encabezado con Título, Saludo, Fecha y Selector de Período -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1 text-dark">Dashboard General</h4>
+        <p class="text-muted small mb-0">Bienvenido, @(AuthService.CurrentUser?.Nombre ?? "Usuario")</p>
+    </div>
+    <div class="d-flex align-items-center flex-wrap gap-2">
+        <div class="d-none d-lg-flex align-items-center gap-2 text-success fw-semibold small me-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/>
+            </svg>
+            <span>@DateTime.Now.ToString("dd MMM yyyy")</span>
+        </div>
+
+        <!-- Botones de Período Rápido -->
+        <div class="btn-group btn-group-sm shadow-sm" role="group">
+            <button type="button" class="btn @(PeriodoActual == "Hoy" ? "btn-success" : "btn-outline-secondary")"
+                    @onclick='() => CambiarPeriodo("Hoy")'>
+                Hoy
+            </button>
+            <button type="button" class="btn @(PeriodoActual == "Mes" ? "btn-success" : "btn-outline-secondary")"
+                    @onclick='() => CambiarPeriodo("Mes")'>
+                Este Mes
+            </button>
+            <button type="button" class="btn @(PeriodoActual == "Año" ? "btn-success" : "btn-outline-secondary")"
+                    @onclick='() => CambiarPeriodo("Año")'>
+                Este Año
+            </button>
+            <button type="button" class="btn @(PeriodoActual == "Todos" ? "btn-success" : "btn-outline-secondary")"
+                    @onclick='() => CambiarPeriodo("Todos")'>
+                Histórico
+            </button>
+        </div>
+
+        <!-- Selector de Rango de Fechas Personalizado -->
+        <div class="d-flex align-items-center gap-1 bg-white p-1 rounded border shadow-sm" style="font-size: 12px;">
+            <span class="text-muted ps-1 fw-semibold">Desde:</span>
+            <input type="date" class="form-control form-control-sm border-0 py-0 px-1" style="font-size: 12px; width: 125px;"
+                   @bind="FechaDesde" />
+
+            <span class="text-muted fw-semibold">Hasta:</span>
+            <input type="date" class="form-control form-control-sm border-0 py-0 px-1" style="font-size: 12px; width: 125px;"
+                   @bind="FechaHasta" />
+
+            <button type="button" class="btn btn-sm @(PeriodoActual == "Personalizado" ? "btn-success text-white" : "btn-outline-secondary") px-2 py-0 fw-semibold"
+                    style="height: 26px; font-size: 11.5px;"
+                    @onclick="AplicarRangoFechas" title="Filtrar por el rango de fechas seleccionado">
+                Filtrar
+            </button>
+        </div>
+
+        <button class="btn btn-outline-secondary btn-sm d-flex align-items-center justify-content-center shadow-sm" 
+                style="height: 32px; width: 32px;"
+                @onclick="CargarDashboard" disabled="@isLoading" title="Actualizar datos">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+              <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+              <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+            </svg>
+        </button>
+    </div>
+</div>
+
+@if (PeriodoActual == "Personalizado")
+{
+    <div class="mb-3 d-flex align-items-center gap-2">
+        <span class="badge bg-light text-dark border px-2 py-1" style="font-size: 12px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2" class="me-1"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+            Mostrando resultados del <strong>@FechaDesde.ToString("dd/MM/yyyy")</strong> al <strong>@FechaHasta.ToString("dd/MM/yyyy")</strong>
+        </span>
+        <button type="button" class="btn btn-link btn-sm text-decoration-none text-muted p-0" style="font-size: 11px;" @onclick='() => CambiarPeriodo("Mes")'>
+            Restablecer a Este Mes
+        </button>
+    </div>
+}
+
+@if (isLoading && Data == null)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-success" role="status"></div>
+        <div class="mt-2 text-muted small">Cargando métricas del sistema...</div>
+    </div>
+}
+else if (Data != null)
+{
+    @if (AuthService.IsAdmin)
+    {
+        <!-- 1. CINCO TARJETAS KPI PARA ADMINISTRADOR (INGRESOS, UTILIDAD, VENTAS, BAJO STOCK, MERMA A COSTO) -->
+        <div class="row g-3 mb-4">
+            <!-- Tarjeta 1: Ingresos del Período -->
+            <div class="col-12 col-sm-6 col-lg-4 col-xl">
+                <div class="kpi-card-clean">
+                    <div class="kpi-accent-bar" style="background-color: #15803d;"></div>
+                    <div class="kpi-number text-dark">$@Data.IngresosPeriodo.ToString("N2")</div>
+                    <div class="kpi-subtitle">Ingresos en el periodo</div>
+                    <div class="kpi-meta text-muted small mt-2 pt-1 border-top" style="font-size: 11px;">
+                        Histórico: <strong>$@Data.IngresosHistorico.ToString("N2")</strong>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tarjeta 2: Utilidad del Período (Ganancia Bruta y Margen) -->
+            <div class="col-12 col-sm-6 col-lg-4 col-xl">
+                <div class="kpi-card-clean">
+                    <div class="kpi-accent-bar" style="background-color: #059669;"></div>
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="kpi-number" style="color: #15803d;">$@Data.UtilidadPeriodo.ToString("N2")</div>
+                        <span class="badge bg-success bg-opacity-10 text-success fw-bold px-2 py-1" style="font-size: 11px;">
+                            @(Data.MargenUtilidad >= 0 ? "+" : "")@Data.MargenUtilidad.ToString("F1")%
+                        </span>
+                    </div>
+                    <div class="kpi-subtitle">Utilidad del periodo</div>
+                    <div class="kpi-meta text-muted small mt-2 pt-1 border-top d-flex justify-content-between" style="font-size: 11px;">
+                        <span>Costo: <strong>$@Data.CostoPeriodo.ToString("N2")</strong></span>
+                        <span>Histórico: <strong>$@Data.UtilidadHistorico.ToString("N2")</strong></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tarjeta 3: Ventas en el Período -->
+            <div class="col-12 col-sm-6 col-lg-4 col-xl">
+                <div class="kpi-card-clean">
+                    <div class="kpi-accent-bar" style="background-color: #0284c7;"></div>
+                    <div class="kpi-number text-dark">@Data.CantidadVentasPeriodo</div>
+                    <div class="kpi-subtitle">Ventas en el periodo</div>
+                    <div class="kpi-meta text-muted small mt-2 pt-1 border-top" style="font-size: 11px;">
+                        Histórico: <strong>@Data.CantidadVentasHistorico</strong> ventas
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tarjeta 4: Productos con Bajo Stock -->
+            <div class="col-12 col-sm-6 col-lg-4 col-xl">
+                <div class="kpi-card-clean">
+                    <div class="kpi-accent-bar" style="background-color: #ea580c;"></div>
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="kpi-number @(Data.TotalBajoStock > 0 ? "text-danger" : "text-dark")">@Data.TotalBajoStock</div>
+                        @if (Data.TotalBajoStock > 0)
+                        {
+                            <span class="badge bg-danger bg-opacity-10 text-danger fw-semibold px-2 py-1" style="font-size: 10.5px;">
+                                Alerta Reposición
+                            </span>
+                        }
+                    </div>
+                    <div class="kpi-subtitle">Productos con bajo stock</div>
+                    <div class="kpi-meta text-muted small mt-2 pt-1 border-top" style="font-size: 11px;">
+                        Artículos con existencia ≤ mínimo
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tarjeta 5: Pérdidas por Mermas y Consumo Interno (Valuadas a COSTO) -->
+            <div class="col-12 col-sm-6 col-lg-4 col-xl">
+                <div class="kpi-card-clean">
+                    <div class="kpi-accent-bar" style="background-color: #dc2626;"></div>
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="kpi-number text-danger">$@Data.PerdidaMermaPeriodo.ToString("N2")</div>
+                        <span class="badge bg-danger bg-opacity-10 text-danger fw-semibold px-2 py-1" style="font-size: 10.5px;">
+                            @Data.ConteoAjustesMermaPeriodo merma(s)
+                        </span>
+                    </div>
+                    <div class="kpi-subtitle">Pérdida Mermas / Gasto Interno</div>
+                    <div class="kpi-meta text-muted small mt-2 pt-1 border-top d-flex justify-content-between" style="font-size: 11px;">
+                        <span>Histórico: <strong>$@Data.PerdidaMermaHistorico.ToString("N2")</strong></span>
+                        <span class="badge bg-light text-muted border px-1">A Costo</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- VISTA OPERATIVA PARA SUPERVISOR DE TIENDA (SIN DATOS FINANCIEROS NI INGRESOS) -->
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-md-5 col-lg-4">
+                <div class="kpi-card-clean">
+                    <div class="kpi-accent-bar" style="background-color: #ea580c;"></div>
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="kpi-number @(Data.TotalBajoStock > 0 ? "text-danger" : "text-dark")">@Data.TotalBajoStock</div>
+                        @if (Data.TotalBajoStock > 0)
+                        {
+                            <span class="badge bg-danger bg-opacity-10 text-danger fw-semibold px-2 py-1" style="font-size: 11px;">
+                                Requiere Reposición
+                            </span>
+                        }
+                    </div>
+                    <div class="kpi-subtitle">Productos con existencias bajas</div>
+                    <div class="kpi-meta text-muted small mt-2 pt-1 border-top" style="font-size: 11px;">
+                        Artículos con stock físico ≤ mínimo establecido
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-7 col-lg-8">
+                <div class="card border-0 shadow-sm rounded-3 p-3 h-100 bg-white d-flex justify-content-center">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="p-3 rounded-circle bg-success bg-opacity-10 text-success">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+                                <line x1="3" y1="6" x2="21" y2="6"/>
+                                <path d="M16 10a4 4 0 0 1-8 0"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h6 class="fw-bold mb-1 text-dark">Panel Operativo de Tienda &amp; Inventarios</h6>
+                            <p class="text-muted small mb-0">
+                                Supervisión de disponibilidad física en tienda, control de existencias en estantes y rotación por demanda.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- 2. CONTENEDOR DE TABLAS DEL DASHBOARD -->
+    <div class="row g-4 mb-4">
+        <!-- BLOQUE A: Productos con Bajo Stock (≤ 5 unidades) -->
+        <div class="col-12">
+            <div class="card border-0 shadow-sm rounded-3">
+                <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <h6 class="mb-0 fw-bold text-dark">Productos con Bajo Stock (≤ 5 unidades)</h6>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-sm btn-outline-success d-flex align-items-center gap-1 shadow-sm"
+                                @onclick="DescargarAlertasExcel" disabled="@isExportingAlertas"
+                                title="Exportar reporte a Excel">
+                            @if (isExportingAlertas)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                                <span>Exportando...</span>
+                            }
+                            else
+                            {
+                                <span>Exportar Excel</span>
+                            }
+                        </button>
+                        <span class="badge rounded-pill text-white px-3 py-1" style="background-color: #ea580c; font-size: 11.5px; font-weight: 600;">
+                            @Data.TotalBajoStock alerts(s)
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    @if (!Data.ProductosBajoStock.Any())
+                    {
+                        <div class="text-center py-4 text-muted small">
+                            <div class="fw-semibold">No hay alertas de inventario</div>
+                            <div>Todos los productos superan el stock mínimo establecido</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive" style="max-height: 380px; overflow-y: auto;">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light sticky-top">
+                                    <tr class="text-muted small">
+                                        <th style="font-weight: 600;">Código</th>
+                                        <th style="font-weight: 600;">Producto</th>
+                                        <th style="font-weight: 600;">Stock Actual</th>
+                                        <th style="font-weight: 600;">Estado</th>
+                                        <th class="text-end" style="font-weight: 600;">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var p in Data.ProductosBajoStock)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <span class="badge rounded-pill text-white px-2 py-1" style="background-color: #475569; font-family: monospace; font-size: 11px;">
+                                                    @p.Codigo
+                                                </span>
+                                            </td>
+                                            <td class="fw-semibold text-dark">@p.Nombre</td>
+                                            <td>
+                                                <span class="badge rounded-pill px-2 py-1" style="background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-size: 11px;">
+                                                    @p.Stock uds
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="badge rounded-pill text-white px-2 py-1" style="background-color: #ea580c; font-size: 11px;">
+                                                    @(p.Stock == 0 ? "Agotado" : "Requiere reabastecimiento")
+                                                </span>
+                                            </td>
+                                            <td class="text-end">
+                                                <button class="btn btn-sm text-white px-3 py-1 fw-semibold" style="background-color: #15803d; border-radius: 6px; font-size: 12px;" @onclick='() => Navigation.NavigateTo("inventario")'>
+                                                    Actualizar
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- BLOQUE B: Top de Productos Más Vendidos -->
+        <div class="col-12">
+            <div class="card border-0 shadow-sm rounded-3">
+                <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0 fw-bold text-dark">Top Productos Más Vendidos</h6>
+                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1" style="font-size: 11px;">
+                        Ranking por demanda
+                    </span>
+                </div>
+                <div class="card-body p-0">
+                    @if (!Data.TopProductos.Any())
+                    {
+                        <div class="text-center py-4 text-muted small">
+                            <div class="fw-semibold">Sin ventas registradas</div>
+                            <div>Aún no se han completado transacciones en este período</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr class="text-muted small">
+                                        <th style="width: 80px; font-weight: 600;">Ranking</th>
+                                        <th style="width: 140px; font-weight: 600;">Código</th>
+                                        <th style="font-weight: 600;">Producto</th>
+                                        <th class="text-end" style="width: 160px; font-weight: 600;">Unidades Vendidas</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var (prod, idx) in Data.TopProductos.Select((p, i) => (p, i + 1)))
+                                    {
+                                        <tr>
+                                            <td class="fw-bold text-muted ps-3">@idx</td>
+                                            <td>
+                                                <span class="badge rounded-pill text-white px-2 py-1" style="background-color: #475569; font-family: monospace; font-size: 11px;">
+                                                    @prod.Codigo
+                                                </span>
+                                            </td>
+                                            <td class="fw-semibold text-dark">@prod.Nombre</td>
+                                            <td class="text-end pe-3">
+                                                <span class="fw-bold" style="color: #15803d; font-size: 13.5px;">@prod.CantidadVendida.ToString("G29")</span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (AuthService.IsAdmin)
+        {
+            <!-- BLOQUE C: Libros de IVA de Crédito Fiscal y Débito Fiscal (Solo Administrador) -->
+            <div class="col-12">
+                <div class="card border-0 shadow-sm rounded-3">
+                    <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <h6 class="mb-0 fw-bold text-dark">Libros de IVA: Débito Fiscal &amp; Crédito Fiscal (@PeriodoEtiqueta)</h6>
+                        <div class="d-flex align-items-center gap-2">
+                            <button class="btn btn-sm btn-success d-flex align-items-center gap-1 shadow-sm"
+                                    @onclick="DescargarLibrosIvaExcel" disabled="@isExportingIva"
+                                    title="Descargar libro de compras, ventas y liquidación en Excel">
+                                @if (isExportingIva)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    <span>Exportando...</span>
+                                }
+                                else
+                                {
+                                    <span class="fw-semibold">Descargar Libros IVA (Excel)</span>
+                                }
+                            </button>
+                            <span class="badge bg-dark bg-opacity-10 text-dark border">
+                                Tasa IVA: 13.00%
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="card-body p-4">
+                        <div class="row g-4 align-items-center">
+                            <!-- Libro de Ventas (Débito Fiscal) -->
+                            <div class="col-12 col-md-5">
+                                <div class="p-3 border rounded-3 bg-light">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <h6 class="fw-bold text-dark mb-0">Libro de Ventas (Débito Fiscal)</h6>
+                                        <span class="badge bg-success">@Data.LibroIva.ConteoComprobantesVenta docs</span>
+                                    </div>
+                                    <div class="small text-muted mb-2">
+                                        Impuesto cobrado en ventas emitidas a clientes
+                                    </div>
+
+                                    <div class="d-flex justify-content-between small mb-1">
+                                        <span class="text-muted">Total Ventas Brutas:</span>
+                                        <span class="fw-semibold text-dark">$@Data.LibroIva.TotalVentas.ToString("F2")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between small mb-2">
+                                        <span class="text-muted">Base Imponible Neta:</span>
+                                        <span class="fw-semibold text-dark">$@Data.LibroIva.BaseDebitoFiscal.ToString("F2")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                                        <strong class="text-success">DÉBITO FISCAL (13%):</strong>
+                                        <span class="fs-5 fw-bold text-success">+$@Data.LibroIva.DebitoFiscal.ToString("F2")</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Libro de Compras (Crédito Fiscal) -->
+                            <div class="col-12 col-md-5">
+                                <div class="p-3 border rounded-3 bg-light">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <h6 class="fw-bold text-dark mb-0">Libro de Compras (Crédito Fiscal)</h6>
+                                        <span class="badge bg-success">@Data.LibroIva.ConteoCompras compras</span>
+                                    </div>
+                                    <div class="small text-muted mb-2">
+                                        Impuesto soportado y deducible en compras a proveedores
+                                    </div>
+
+                                    <div class="d-flex justify-content-between small mb-1">
+                                        <span class="text-muted">Total Compras Facturadas:</span>
+                                        <span class="fw-semibold text-dark">$@Data.LibroIva.TotalCompras.ToString("F2")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between small mb-2">
+                                        <span class="text-muted">Base Imponible Neta:</span>
+                                        <span class="fw-semibold text-dark">$@Data.LibroIva.BaseCreditoFiscal.ToString("F2")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                                        <strong class="text-success">CRÉDITO FISCAL (13%):</strong>
+                                        <span class="fs-5 fw-bold text-success">-$@Data.LibroIva.CreditoFiscal.ToString("F2")</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Balance y Liquidación del Período -->
+                            <div class="col-12 col-md-2 text-center">
+                                <div class="p-3 rounded-3 border @(Data.LibroIva.BalanceIva > 0 ? "border-danger bg-danger bg-opacity-10 text-danger" : (Data.LibroIva.BalanceIva < 0 ? "border-success bg-success bg-opacity-10 text-success" : "border-secondary bg-light text-muted"))">
+                                    <div class="small fw-semibold text-uppercase mb-1">
+                                        @(Data.LibroIva.BalanceIva > 0 ? "IVA a Pagar" : (Data.LibroIva.BalanceIva < 0 ? "Remanente a Favor" : "Balance Neutro"))
+                                    </div>
+                                    <div class="fs-4 fw-bold">
+                                        $@Math.Abs(Data.LibroIva.BalanceIva).ToString("F2")
+                                    </div>
+                                    <div class="text-muted" style="font-size: 10px; margin-top: 4px;">
+                                        Débito - Crédito
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+
+@code {
+    private DashboardFinancieroDto? Data;
+    private string PeriodoActual = "Mes";
+    private DateTime FechaDesde = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+    private DateTime FechaHasta = DateTime.Today;
+    private bool isLoading = true;
+
+    private string PeriodoEtiqueta => PeriodoActual switch
+    {
+        "Hoy" => "del Día",
+        "Mes" => "de este Mes",
+        "Año" => "de este Año",
+        "Personalizado" => $"del {FechaDesde:dd/MM/yyyy} al {FechaHasta:dd/MM/yyyy}",
+        _ => "Histórico Total"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDashboard();
+    }
+
+    private async Task CambiarPeriodo(string periodo)
+    {
+        PeriodoActual = periodo;
+        if (periodo == "Hoy")
+        {
+            FechaDesde = DateTime.Today;
+            FechaHasta = DateTime.Today;
+        }
+        else if (periodo == "Mes")
+        {
+            FechaDesde = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+            FechaHasta = DateTime.Today;
+        }
+        else if (periodo == "Año")
+        {
+            FechaDesde = new DateTime(DateTime.Now.Year, 1, 1);
+            FechaHasta = DateTime.Today;
+        }
+        await CargarDashboard();
+    }
+
+    private async Task AplicarRangoFechas()
+    {
+        if (FechaDesde > FechaHasta)
+        {
+            (FechaDesde, FechaHasta) = (FechaHasta, FechaDesde);
+        }
+        PeriodoActual = "Personalizado";
+        await CargarDashboard();
+    }
+
+    private async Task CargarDashboard()
+    {
+        isLoading = true;
+        try
+        {
+            DateTime? desde = PeriodoActual == "Personalizado" ? FechaDesde : null;
+            DateTime? hasta = PeriodoActual == "Personalizado" ? FechaHasta : null;
+            Data = await DashboardService.GetDashboardFinancieroAsync(PeriodoActual, desde, hasta);
+        }
+        catch (Exception ex)
+        {
+            MensajeExportacion = $"Aviso al cargar métricas: {ex.Message}";
+            ExportacionExitosa = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private bool isExportingAlertas = false;
+    private bool isExportingIva = false;
+    private string? MensajeExportacion = null;
+    private bool ExportacionExitosa = false;
+    private string? UltimaRutaDescargada = null;
+
+    private async Task DescargarAlertasExcel()
+    {
+        isExportingAlertas = true;
+        MensajeExportacion = null;
+        try
+        {
+            var result = await ExcelExportService.ExportarAlertasStockBajoAsync();
+            ExportacionExitosa = result.Exitoso;
+            MensajeExportacion = result.Mensaje;
+            UltimaRutaDescargada = result.RutaArchivoLocal;
+
+            if (result.Exitoso && result.ContenidoBytes.Length > 0)
+            {
+                await JS.InvokeVoidAsync("downloadFileFromBase64", result.NombreArchivo, result.Base64Data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            }
+        }
+        catch (Exception ex)
+        {
+            ExportacionExitosa = false;
+            MensajeExportacion = $"Error inesperado al exportar alertas: {ex.Message}";
+        }
+        finally
+        {
+            isExportingAlertas = false;
+        }
+    }
+
+    private async Task DescargarLibrosIvaExcel()
+    {
+        isExportingIva = true;
+        MensajeExportacion = null;
+        try
+        {
+            DateTime? desde = PeriodoActual == "Personalizado" ? FechaDesde : null;
+            DateTime? hasta = PeriodoActual == "Personalizado" ? FechaHasta : null;
+            var result = await ExcelExportService.ExportarLibrosIvaAsync(PeriodoActual, desde, hasta);
+            ExportacionExitosa = result.Exitoso;
+            MensajeExportacion = result.Mensaje;
+            UltimaRutaDescargada = result.RutaArchivoLocal;
+
+            if (result.Exitoso && result.ContenidoBytes.Length > 0)
+            {
+                await JS.InvokeVoidAsync("downloadFileFromBase64", result.NombreArchivo, result.Base64Data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            }
+        }
+        catch (Exception ex)
+        {
+            ExportacionExitosa = false;
+            MensajeExportacion = $"Error inesperado al exportar libros de IVA: {ex.Message}";
+        }
+        finally
+        {
+            isExportingIva = false;
+        }
+    }
+
+    private void AbrirArchivoExcel()
+    {
+        if (!string.IsNullOrEmpty(UltimaRutaDescargada))
+        {
+            ExcelExportService.AbrirArchivo(UltimaRutaDescargada);
+        }
+    }
+
+    private void AbrirCarpetaExcel()
+    {
+        if (!string.IsNullOrEmpty(UltimaRutaDescargada))
+        {
+            ExcelExportService.AbrirCarpeta(UltimaRutaDescargada);
+        }
+    }
+}

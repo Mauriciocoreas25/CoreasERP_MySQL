@@ -1,0 +1,227 @@
+@page "/clientes"
+@inject ICustomerService CustomerService
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1">Directorio de Clientes</h4>
+        <p class="text-muted small mb-0">Gestión de personas naturales y empresas para emisión fiscal</p>
+    </div>
+    <button class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="NuevoCliente">
+        + Nuevo Cliente
+    </button>
+</div>
+
+<!-- Filtros de Búsqueda -->
+<div class="card border-0 shadow-sm p-3 mb-4 bg-white rounded-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-12 col-md-5">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-white text-muted">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </span>
+                <input type="text" class="form-control" placeholder="Buscar por nombre, documento o teléfono..." 
+                       @bind="SearchTerm" @bind:event="oninput" @onkeyup="CargarClientes" />
+                @if (!string.IsNullOrEmpty(SearchTerm))
+                {
+                    <button class="btn btn-outline-secondary" type="button" @onclick="LimpiarBusqueda">&times;</button>
+                }
+            </div>
+        </div>
+
+        <div class="col-12 col-md-4">
+            <div class="btn-group btn-group-sm w-100" role="group">
+                <button type="button" class="btn @(TipoFiltro == "Todos" ? "btn-primary" : "btn-outline-secondary")"
+                        @onclick='() => FiltrarTipo("Todos")'>
+                    Todos
+                </button>
+                <button type="button" class="btn @(TipoFiltro == "Natural" ? "btn-primary" : "btn-outline-secondary")"
+                        @onclick='() => FiltrarTipo("Natural")'>
+                    Naturales
+                </button>
+                <button type="button" class="btn @(TipoFiltro == "Juridica" ? "btn-primary" : "btn-outline-secondary")"
+                        @onclick='() => FiltrarTipo("Juridica")'>
+                    Empresas
+                </button>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-3 text-md-end">
+            <span class="badge bg-light text-secondary border small">
+                Total: @ListaClientes.Count clientes
+            </span>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(FeedbackMessage))
+{
+    <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small mb-3">
+        @FeedbackMessage
+        <button type="button" class="btn-close py-2" @onclick="() => FeedbackMessage = null"></button>
+    </div>
+}
+
+<!-- Tabla de Clientes -->
+<div class="card border-0 shadow-sm rounded-3">
+    <div class="card-body p-0">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <div class="mt-2 text-muted small">Cargando clientes...</div>
+            </div>
+        }
+        else if (!ListaClientes.Any())
+        {
+            <div class="text-center py-5 text-muted">
+                <div class="fw-semibold">No se encontraron clientes</div>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Nombre / Razón Social</th>
+                            <th>Tipo</th>
+                            <th>Documento</th>
+                            <th>NRC / Giro</th>
+                            <th>Teléfono</th>
+                            <th>Email</th>
+                            <th class="text-center" style="width: 140px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in ListaClientes)
+                        {
+                            <tr>
+                                <td class="fw-semibold">
+                                    <div>@c.Nombre</div>
+                                    @if (!string.IsNullOrEmpty(c.Direccion))
+                                    {
+                                        <div class="text-muted text-truncate" style="max-width: 250px; font-size: 11px;">
+                                            @c.Direccion
+                                        </div>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge @(c.TipoPersona == "Juridica" ? "bg-info text-dark" : "bg-light text-dark") border">
+                                        @c.TipoPersona
+                                    </span>
+                                </td>
+                                <td class="font-monospace text-muted">
+                                    @(string.IsNullOrEmpty(c.NumDocumento) ? "-" : $"{c.TipoDocumento}: {c.NumDocumento}")
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(c.Nrc))
+                                    {
+                                        <div><span class="text-muted">NRC:</span> @c.Nrc</div>
+                                    }
+                                    @if (!string.IsNullOrEmpty(c.Giro))
+                                    {
+                                        <div class="text-muted text-truncate" style="max-width: 200px; font-size: 11px;">@c.Giro</div>
+                                    }
+                                    @if (string.IsNullOrEmpty(c.Nrc) && string.IsNullOrEmpty(c.Giro))
+                                    {
+                                        <span class="text-muted">-</span>
+                                    }
+                                </td>
+                                <td>@(c.Telefono ?? "-")</td>
+                                <td>@(c.Email ?? "-")</td>
+                                <td class="text-center">
+                                    <div class="d-inline-flex gap-1">
+                                        <button type="button" class="btn btn-outline-success btn-sm py-0 px-2 fw-semibold" 
+                                                title="Editar" @onclick="() => Editar(c)">
+                                            Editar
+                                        </button>
+                                        @if (c.IdCliente != 1)
+                                        {
+                                            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 fw-semibold" 
+                                                    title="Eliminar" @onclick="() => Eliminar(c)">
+                                                Eliminar
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<CustomerModal @bind-IsOpen="isModalOpen" ClienteEdit="@ClienteSeleccionado" OnSaved="CargarClientes" />
+
+@code {
+    private List<Cliente> ListaClientes = new();
+    private string SearchTerm = "";
+    private string TipoFiltro = "Todos";
+    private bool isLoading = true;
+
+    private bool isModalOpen;
+    private Cliente? ClienteSeleccionado;
+    private string? FeedbackMessage;
+    private bool isSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarClientes();
+    }
+
+    private async Task CargarClientes()
+    {
+        isLoading = true;
+        try
+        {
+            ListaClientes = await CustomerService.GetAllAsync(SearchTerm, TipoFiltro) ?? new();
+        }
+        catch (Exception ex)
+        {
+            ListaClientes = new();
+            FeedbackMessage = $"Error al cargar clientes: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LimpiarBusqueda()
+    {
+        SearchTerm = "";
+        await CargarClientes();
+    }
+
+    private async Task FiltrarTipo(string tipo)
+    {
+        TipoFiltro = tipo;
+        await CargarClientes();
+    }
+
+    private void NuevoCliente()
+    {
+        ClienteSeleccionado = null;
+        isModalOpen = true;
+    }
+
+    private void Editar(Cliente c)
+    {
+        ClienteSeleccionado = c;
+        isModalOpen = true;
+    }
+
+    private async Task Eliminar(Cliente c)
+    {
+        var result = await CustomerService.DeleteAsync(c.IdCliente);
+        isSuccess = result.Success;
+        FeedbackMessage = result.Message;
+        if (result.Success)
+        {
+            await CargarClientes();
+        }
+    }
+}

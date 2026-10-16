@@ -1,0 +1,315 @@
+@inject IProductService ProductService
+
+@if (IsOpen)
+{
+    <div class="product-search-backdrop" 
+         style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center;" 
+         tabindex="-1" 
+         @onkeydown="HandleModalKeyDown"
+         @onclick="CerrarModal">
+        <div style="max-width: 780px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;" @onclick:stopPropagation="true">
+            <div class="modal-content border-0 shadow-lg rounded-3 overflow-hidden">
+                
+                <!-- Cabecera corporativa verde -->
+                <div class="modal-header py-2 px-3 text-white d-flex justify-content-between align-items-center"
+                     style="background-color: #14532D; border-bottom: 1px solid #114022;">
+                    <div class="d-flex align-items-center gap-2">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <h6 class="modal-title fw-bold mb-0 text-white" style="font-size: 15px;">Buscador de Productos</h6>
+                    </div>
+                    <button type="button" class="btn btn-sm text-white-50 p-0 border-0 bg-transparent fs-5 lh-1" 
+                            style="cursor: pointer;" @onclick="CerrarModal" title="Cerrar (Esc)">
+                        &times;
+                    </button>
+                </div>
+
+                <!-- Cuerpo con Buscador y Tabla -->
+                <div class="modal-body p-3 bg-white">
+                    <!-- Campo de búsqueda principal con auto-focus -->
+                    <div class="mb-2">
+                        <input @ref="searchInputRef"
+                               type="text"
+                               class="form-control form-control-lg border-2 shadow-sm"
+                               style="border-color: #86efac; border-radius: 8px; font-size: 14px;"
+                               placeholder="Escribe el código o nombre para buscar..."
+                               @bind="TerminoBusqueda"
+                               @bind:event="oninput"
+                               @onkeydown="HandleInputKeyDown" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(ErrorMessage))
+                    {
+                        <div class="alert alert-danger py-1 px-3 mb-2 small d-flex justify-content-between align-items-center">
+                            <span>@ErrorMessage</span>
+                            <button type="button" class="btn-close btn-close-sm" @onclick="() => ErrorMessage = null"></button>
+                        </div>
+                    }
+
+                    <!-- Tabla de Productos con selección por teclado -->
+                    <div class="table-responsive border rounded-2" style="max-height: 340px; min-height: 200px; overflow-y: auto;">
+                        <table class="table table-hover align-middle mb-0 small" style="font-size: 12.5px;">
+                            <thead class="sticky-top" style="background-color: #14532D; color: #ffffff; z-index: 1;">
+                                <tr>
+                                    <th class="py-2 px-3 fw-bold" style="width: 120px;">SKU/Código</th>
+                                    <th class="py-2 px-3 fw-bold">Nombre</th>
+                                    <th class="py-2 px-3 text-end fw-bold" style="width: 85px;">Costo</th>
+                                    <th class="py-2 px-3 text-end fw-bold" style="width: 85px;">Precio</th>
+                                    <th class="py-2 px-3 text-center fw-bold" style="width: 110px;">Existencias</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (isLoading)
+                                {
+                                    <tr>
+                                        <td colspan="5" class="text-center py-4 text-muted">
+                                            <div class="spinner-border spinner-border-sm text-success me-2" role="status"></div>
+                                            Buscando en catálogo...
+                                        </td>
+                                    </tr>
+                                }
+                                else if (!ProductosEncontrados.Any())
+                                {
+                                    <tr>
+                                        <td colspan="5" class="text-center py-4 text-muted">
+                                            <div class="text-muted mb-1">
+                                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                                            </div>
+                                            No se encontraron productos coincidentes.
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @for (int i = 0; i < ProductosEncontrados.Count; i++)
+                                    {
+                                        int index = i;
+                                        var prod = ProductosEncontrados[index];
+                                        bool isSelected = (index == SelectedIndex);
+                                        bool sinStock = !PermitirSinStock && prod.Stock <= 0;
+
+                                        <tr @key="prod.IdProducto"
+                                            class="@(isSelected ? "table-row-selected" : "")"
+                                            style="cursor: @(sinStock ? "not-allowed" : "pointer"); @(isSelected ? (sinStock ? "background-color: #fee2e2 !important; border-left: 4px solid #ef4444;" : "background-color: #dcfce7 !important; border-left: 4px solid #15803D;") : (sinStock ? "opacity: 0.65; background-color: #f8fafc;" : ""))"
+                                            @onclick="() => SeleccionarProducto(prod)"
+                                            @onmouseover="() => SelectedIndex = index">
+                                            
+                                            <!-- SKU / Código -->
+                                            <td class="py-2 px-3 font-monospace @(sinStock ? "text-danger" : (isSelected ? "fw-bold text-success" : "text-secondary"))">
+                                                @prod.Codigo
+                                            </td>
+
+                                            <!-- Nombre -->
+                                            <td class="py-2 px-3 @(sinStock ? "text-decoration-line-through text-muted" : (isSelected ? "fw-bold text-dark" : "text-dark"))">
+                                                @prod.Nombre
+                                                @if (prod.Stock <= 0 && !PermitirSinStock)
+                                                {
+                                                    <span class="badge bg-danger ms-1" style="font-size: 9.5px;">AGOTADO</span>
+                                                }
+                                                else if (prod.Stock <= 0 && PermitirSinStock)
+                                                {
+                                                    <span class="badge bg-secondary ms-1" style="font-size: 9.5px;">SIN EXISTENCIA</span>
+                                                }
+                                            </td>
+
+                                            <!-- Costo de Compra -->
+                                            <td class="py-2 px-3 text-end text-muted">
+                                                $@prod.PrecioCompra.ToString("F2")
+                                            </td>
+
+                                            <!-- Precio de Venta -->
+                                            <td class="py-2 px-3 text-end">
+                                                <div class="fw-bold text-dark" title="Precio Unitario">$@prod.PrecioVenta.ToString("F2")</div>
+                                                @if (prod.PrecioGranel.HasValue && prod.PrecioGranel.Value > 0)
+                                                {
+                                                    <div class="badge bg-success bg-opacity-25 text-success border border-success px-1" style="font-size: 9px;" title="Precio Granel / Caja">
+                                                        @(prod.UnidadMedida == "Caja" ? "Caja" : (prod.UnidadMedida == "Sobre" ? "Sobre" : (prod.UnidadMedida == "Paquete" ? "Paq" : "Granel"))): $@prod.PrecioGranel.Value.ToString("F2")
+                                                    </div>
+                                                }
+                                            </td>
+
+                                            <!-- Existencias -->
+                                            <td class="py-2 px-3 text-center">
+                                                <span class="badge @(prod.Stock <= 0 ? (PermitirSinStock ? "bg-secondary text-white" : "bg-danger text-white fw-bold") : (prod.Stock <= prod.StockMinimo ? "bg-warning text-dark" : "bg-light text-dark border"))"
+                                                      style="font-size: 11px;">
+                                                    @(prod.Stock <= 0 ? "0" : prod.Stock.ToString("G29")) @(prod.UnidadMedida == "Libra" ? "lb" : (prod.UnidadMedida == "Kilogramo" ? "kg" : (prod.UnidadMedida == "Gramo" ? "g" : "uds")))
+                                                </span>
+                                                @if (prod.EsGranel)
+                                                {
+                                                    <span class="badge bg-info bg-opacity-25 text-info-emphasis border border-info ms-1" style="font-size: 9px;">
+                                                        GRANEL
+                                                    </span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Pie de Modal con Guía de Navegación y Botón Cerrar -->
+                <div class="modal-footer py-2 px-3 bg-light d-flex justify-content-between align-items-center border-top">
+                    <div class="small text-muted d-flex align-items-center gap-1" style="font-size: 11.5px;">
+                        <span>Use</span>
+                        <kbd class="bg-dark text-white px-1 py-0 rounded" style="font-size: 10px;">&uarr;</kbd>
+                        <kbd class="bg-dark text-white px-1 py-0 rounded" style="font-size: 10px;">&darr;</kbd>
+                        <span>y</span>
+                        <kbd class="bg-dark text-white px-1 py-0 rounded" style="font-size: 10px;">Enter</kbd>
+                        <span>para navegar e insertar.</span>
+                    </div>
+
+                    <button type="button" class="btn btn-sm btn-secondary px-3 py-1 fw-semibold"
+                            style="background-color: #64748b; border-color: #64748b; font-size: 12px;"
+                            @onclick="CerrarModal">
+                        Cerrar
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback<Producto> OnProductSelected { get; set; }
+    [Parameter] public bool PermitirSinStock { get; set; } = false;
+    [Parameter] public string? TerminoInicial { get; set; }
+
+    private ElementReference searchInputRef;
+    private string _terminoBusqueda = "";
+    private string TerminoBusqueda
+    {
+        get => _terminoBusqueda;
+        set
+        {
+            if (_terminoBusqueda != value)
+            {
+                _terminoBusqueda = value;
+                _ = RealizarBusquedaAsync();
+            }
+        }
+    }
+
+    private List<Producto> ProductosEncontrados = new();
+    private int SelectedIndex = 0;
+    private bool isLoading = false;
+    private bool needFocus = false;
+    private bool wasOpen = false;
+    private string? ErrorMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && !wasOpen)
+        {
+            wasOpen = true;
+            _terminoBusqueda = TerminoInicial ?? "";
+            SelectedIndex = 0;
+            ErrorMessage = null;
+            needFocus = true;
+            await RealizarBusquedaAsync();
+        }
+        else if (!IsOpen)
+        {
+            wasOpen = false;
+            TerminoInicial = null;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen && needFocus)
+        {
+            needFocus = false;
+            try
+            {
+                await searchInputRef.FocusAsync();
+            }
+            catch
+            {
+                // Ignorar si el elemento aún no está en el DOM
+            }
+        }
+    }
+
+    private async Task RealizarBusquedaAsync()
+    {
+        isLoading = true;
+        ErrorMessage = null;
+        try
+        {
+            // Si no se permite vender sin stock (ej: en el Punto de Venta POS), solo devolver productos con existencias > 0
+            bool? soloConStock = PermitirSinStock ? null : true;
+            ProductosEncontrados = await ProductService.SearchAsync(TerminoBusqueda, limit: 50, soloActivos: true, soloConStock: soloConStock);
+            SelectedIndex = 0;
+        }
+        catch
+        {
+            ProductosEncontrados.Clear();
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleInputKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "ArrowDown")
+        {
+            if (ProductosEncontrados.Any())
+            {
+                SelectedIndex = Math.Min(SelectedIndex + 1, ProductosEncontrados.Count - 1);
+            }
+        }
+        else if (e.Key == "ArrowUp")
+        {
+            if (ProductosEncontrados.Any())
+            {
+                SelectedIndex = Math.Max(SelectedIndex - 1, 0);
+            }
+        }
+        else if (e.Key == "Enter")
+        {
+            if (ProductosEncontrados.Any() && SelectedIndex >= 0 && SelectedIndex < ProductosEncontrados.Count)
+            {
+                await SeleccionarProducto(ProductosEncontrados[SelectedIndex]);
+            }
+        }
+        else if (e.Key == "Escape")
+        {
+            await CerrarModal();
+        }
+    }
+
+    private async Task HandleModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await CerrarModal();
+        }
+    }
+
+    private async Task SeleccionarProducto(Producto prod)
+    {
+        if (!PermitirSinStock && prod.Stock <= 0)
+        {
+            ErrorMessage = $"El producto '{prod.Nombre}' no tiene existencias disponibles (Stock: 0) y no puede ser vendido.";
+            return;
+        }
+
+        ErrorMessage = null;
+        await OnProductSelected.InvokeAsync(prod);
+        await CerrarModal();
+    }
+
+    private async Task CerrarModal()
+    {
+        wasOpen = false;
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

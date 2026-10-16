@@ -1,0 +1,193 @@
+@page "/promociones"
+@inject IPromotionService PromotionService
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1">Promociones & Ofertas Especiales</h4>
+        <p class="text-muted small mb-0">Gestión de descuentos porcentuales, montos fijos y vigencias temporales</p>
+    </div>
+    <button class="btn btn-success btn-sm px-3 fw-semibold" @onclick="NuevaPromocion">
+        + Nueva Promoción
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(FeedbackMessage))
+{
+    <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small mb-3">
+        @FeedbackMessage
+        <button type="button" class="btn-close py-2" @onclick="() => FeedbackMessage = null"></button>
+    </div>
+}
+
+<div class="card border-0 shadow-sm rounded-3">
+    <div class="card-body p-0">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-success"></div>
+                <div class="mt-2 text-muted small">Cargando promociones...</div>
+            </div>
+        }
+        else if (!ListaPromociones.Any())
+        {
+            <div class="text-center py-5 text-muted">
+                <div class="fw-semibold">No se registran promociones u ofertas configuradas</div>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Nombre de la Oferta</th>
+                            <th>Descuento</th>
+                            <th>Alcance</th>
+                            <th>Vigencia Desde</th>
+                            <th>Vigencia Hasta</th>
+                            <th class="text-center">Estado</th>
+                            <th class="text-center" style="width: 170px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in ListaPromociones)
+                        {
+                            var esVigente = p.Estado && p.FechaInicio <= DateTime.Now && p.FechaFin >= DateTime.Now;
+                            <tr>
+                                <td class="fw-semibold">
+                                    <div>@p.Nombre</div>
+                                    @if (!string.IsNullOrEmpty(p.Descripcion))
+                                    {
+                                        <div class="text-muted text-truncate" style="max-width: 250px; font-size: 11px;">
+                                            @p.Descripcion
+                                        </div>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="badge bg-success bg-opacity-10 text-success fw-bold fs-6">
+                                        @(p.TipoDescuento == "Porcentaje" ? $"{p.Valor:F0}% OFF" : $"${p.Valor:F2} OFF")
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (p.Producto != null)
+                                    {
+                                        <span class="badge bg-light text-dark border">
+                                            @p.Producto.Nombre
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success bg-opacity-10 text-success">
+                                            Catálogo General
+                                        </span>
+                                    }
+                                </td>
+                                <td class="text-muted">@p.FechaInicio.ToString("dd/MM/yyyy")</td>
+                                <td class="text-muted">@p.FechaFin.ToString("dd/MM/yyyy")</td>
+                                <td class="text-center">
+                                    @if (!p.Estado)
+                                    {
+                                        <span class="badge bg-secondary">Inactiva</span>
+                                    }
+                                    else if (esVigente)
+                                    {
+                                        <span class="badge bg-success">● Activa</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning text-dark">Vencida</span>
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    <div class="d-inline-flex gap-1">
+                                        <button type="button" class="btn btn-outline-success btn-sm py-0 px-2 fw-semibold" 
+                                                title="Editar" @onclick="() => Editar(p)">
+                                            Editar
+                                        </button>
+                                        <button type="button" class="btn @(p.Estado ? "btn-outline-warning" : "btn-outline-success") btn-sm py-0 px-2 fw-semibold" 
+                                                title="@(p.Estado ? "Pausar" : "Activar")" @onclick="() => ToggleEstado(p)">
+                                            @(p.Estado ? "Pausar" : "Activar")
+                                        </button>
+                                        <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2 fw-semibold" 
+                                                title="Eliminar" @onclick="() => Eliminar(p)">
+                                            Eliminar
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<PromoModal @bind-IsOpen="isModalOpen" PromocionEdit="@PromocionSeleccionada" OnSaved="CargarPromociones" />
+
+@code {
+    private List<Promocion> ListaPromociones = new();
+    private bool isLoading = true;
+    private bool isModalOpen;
+    private Promocion? PromocionSeleccionada;
+    private string? FeedbackMessage;
+    private bool isSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarPromociones();
+    }
+
+    private async Task CargarPromociones()
+    {
+        isLoading = true;
+        try
+        {
+            ListaPromociones = await PromotionService.GetAllAsync() ?? new();
+        }
+        catch (Exception ex)
+        {
+            ListaPromociones = new();
+            FeedbackMessage = $"Error al cargar promociones: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void NuevaPromocion()
+    {
+        PromocionSeleccionada = null;
+        isModalOpen = true;
+    }
+
+    private void Editar(Promocion p)
+    {
+        PromocionSeleccionada = p;
+        isModalOpen = true;
+    }
+
+    private async Task ToggleEstado(Promocion p)
+    {
+        var result = await PromotionService.ToggleEstadoAsync(p.IdPromocion);
+        isSuccess = result.Success;
+        FeedbackMessage = result.Message;
+        if (result.Success)
+        {
+            await CargarPromociones();
+        }
+    }
+
+    private async Task Eliminar(Promocion p)
+    {
+        var result = await PromotionService.DeleteAsync(p.IdPromocion);
+        isSuccess = result.Success;
+        FeedbackMessage = result.Message;
+        if (result.Success)
+        {
+            await CargarPromociones();
+        }
+    }
+}

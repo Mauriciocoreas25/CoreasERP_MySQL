@@ -1,0 +1,140 @@
+@inject IPurchaseService PurchaseService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" style="z-index: 1100;" @onclick="Close">
+        <div class="modal-content-custom" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="1" y="3" width="15" height="13"></rect>
+                        <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                        <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                        <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                    </svg>
+                    <h6 class="mb-0 fw-bold">Nuevo Proveedor Rápido</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close"></button>
+            </div>
+
+            <div class="p-4">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Nombre o Razón Social *</label>
+                    <input type="text" class="form-control form-control-sm" @bind="Model.Nombre" @bind:event="oninput" placeholder="Ej. Distribuidora Central S.A. de C.V." />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Contacto / Vendedor</label>
+                    <input type="text" class="form-control form-control-sm" @bind="Model.Contacto" @bind:event="oninput" placeholder="Ej. Lic. Carlos Mendoza" />
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">NRC</label>
+                        <input type="text" class="form-control form-control-sm font-monospace" @bind="Model.Nrc" @bind:event="oninput" placeholder="Ej. 123456-7" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">NIT / DUI</label>
+                        <input type="text" class="form-control form-control-sm font-monospace" @bind="Model.Nit" @bind:event="oninput" placeholder="Ej. 0614-120190-101-1" />
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Teléfono</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.Telefono" @bind:event="oninput" placeholder="2200-0000 / 7000-0000" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Email</label>
+                        <input type="email" class="form-control form-control-sm" @bind="Model.Email" @bind:event="oninput" placeholder="ventas@proveedor.com" />
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Dirección</label>
+                    <input type="text" class="form-control form-control-sm" @bind="Model.Direccion" @bind:event="oninput" placeholder="Dirección del local o bodega" />
+                </div>
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mb-0">
+                        @ErrorMessage
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="Close">Cancelar</button>
+                <button type="button" class="btn text-white btn-sm px-3" style="background-color: #15803D; border-color: #15803D;" @onclick="Guardar" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Guardando...</span>
+                    }
+                    else
+                    {
+                        <span>Guardar Proveedor</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback<Proveedor> OnCreated { get; set; }
+
+    private Proveedor Model = new();
+    private bool isSaving;
+    private string? ErrorMessage;
+    private bool _wasOpen;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            _wasOpen = true;
+            Model = new Proveedor();
+            ErrorMessage = null;
+            isSaving = false;
+        }
+        else if (!IsOpen)
+        {
+            _wasOpen = false;
+        }
+    }
+
+    private async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(Model.Nombre))
+        {
+            ErrorMessage = "El nombre o razón social es obligatorio.";
+            return;
+        }
+
+        isSaving = true;
+        ErrorMessage = null;
+
+        var result = await PurchaseService.SaveProveedorAsync(Model);
+        isSaving = false;
+
+        if (result.Success && result.Proveedor != null)
+        {
+            await Close();
+            await OnCreated.InvokeAsync(result.Proveedor);
+        }
+        else
+        {
+            ErrorMessage = result.Message;
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        _wasOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

@@ -1,0 +1,329 @@
+@page "/cortes"
+@inject ICashRegisterService CashRegisterService
+@inject IAuthService AuthService
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1">Control de Turnos & Arqueo de Caja</h4>
+        <p class="text-muted small mb-0">Apertura, cuadre de efectivo y balance de turnos de punto de venta</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(FeedbackMessage))
+{
+    <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small mb-3">
+        @FeedbackMessage
+        <button type="button" class="btn-close py-2" @onclick="() => FeedbackMessage = null"></button>
+    </div>
+}
+
+<div class="row g-4 mb-4">
+    <!-- Panel del Turno Activo -->
+    <div class="col-12 col-lg-5">
+        <div class="card border-0 shadow-sm rounded-3 h-100">
+            <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 fw-bold">Turno de Caja Actual</h6>
+                </div>
+                @if (CorteActivo != null)
+                {
+                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25">
+                        ● Caja Abierta
+                    </span>
+                }
+                else
+                {
+                    <span class="badge bg-secondary bg-opacity-10 text-secondary border">
+                        ○ Sin Turno Activo
+                    </span>
+                }
+            </div>
+
+            <div class="card-body p-4">
+                @if (CorteActivo == null)
+                {
+                    <!-- Formulario de Apertura de Caja -->
+                    <div class="text-center py-3">
+                        <div class="mb-2 text-muted">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+                        </div>
+                        <h6 class="fw-bold">Apertura de Caja</h6>
+                        <p class="text-muted small mb-3">
+                            Ingresa el fondo de caja inicial (cambio en gaveta) para comenzar las ventas.
+                        </p>
+
+                        <div class="mb-3 text-start">
+                            <label class="form-label small fw-semibold">Fondo Inicial ($):</label>
+                            <div class="input-group input-group-lg">
+                                <span class="input-group-text">$</span>
+                                <input type="number" step="0.01" min="0" class="form-control fw-bold" 
+                                       @bind="MontoInicialApertura" placeholder="50.00" />
+                            </div>
+                        </div>
+
+                        <button class="btn btn-success w-100 py-2 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="AbrirCaja" disabled="@isProcessing">
+                            @if (isProcessing)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Abriendo...</span>
+                            }
+                            else
+                            {
+                                <span>Abrir Turno de Caja</span>
+                            }
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <!-- Información del Turno en Operación -->
+                    <div class="small mb-3 text-muted">
+                        <div><strong>Cajero:</strong> @(CorteActivo.Usuario?.Nombre ?? "Cajero")</div>
+                        <div><strong>Apertura:</strong> @CorteActivo.FechaApertura.ToString("dd/MM/yyyy hh:mm tt")</div>
+                    </div>
+
+                    <div class="p-3 bg-light rounded-3 mb-3 small">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="text-muted">Fondo Inicial:</span>
+                            <span class="fw-semibold text-dark">$@CorteActivo.MontoInicial.ToString("F2")</span>
+                        </div>
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="text-muted">Ventas en Efectivo:</span>
+                            <span class="fw-semibold text-success">+$@CorteActivo.TotalVentas.ToString("F2")</span>
+                        </div>
+                        <div class="d-flex justify-content-between fs-6 fw-bold border-top pt-2">
+                            <span class="text-dark">Total Esperado en Caja:</span>
+                            <span class="text-success">$@TotalEsperado.ToString("F2")</span>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-dark w-50 py-2 fw-semibold" @onclick="AbrirArqueoX">
+                            Corte X (Parcial)
+                        </button>
+                        <button class="btn btn-warning w-50 py-2 fw-bold text-dark" @onclick="AbrirArqueoZ">
+                            Corte Z (Cierre)
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Resumen Explicativo -->
+    <div class="col-12 col-lg-7">
+        <div class="card border-0 shadow-sm rounded-3 h-100 p-4 bg-white">
+            <h6 class="fw-bold mb-3">Guía de Control de Arqueo</h6>
+            <div class="row g-3 small text-muted">
+                <div class="col-12 col-md-4">
+                    <div class="p-3 border rounded-3 text-center bg-light">
+                        <div class="badge bg-success bg-opacity-10 text-success fs-6 mb-2">Paso 1</div>
+                        <div class="fw-bold text-dark mb-1">Apertura</div>
+                        <div>Se asigna el fondo de caja para cambio del turno.</div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="p-3 border rounded-3 text-center bg-light">
+                        <div class="badge bg-success bg-opacity-10 text-success fs-6 mb-2">Paso 2</div>
+                        <div class="fw-bold text-dark mb-1">Operación</div>
+                        <div>Las ventas en efectivo suman al turno automáticamente.</div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="p-3 border rounded-3 text-center bg-light">
+                        <div class="badge bg-success bg-opacity-10 text-success fs-6 mb-2">Paso 3</div>
+                        <div class="fw-bold text-dark mb-1">Arqueo</div>
+                        <div>Conteo físico para detectar faltantes o sobrantes.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Historial de Turnos de Caja -->
+<div class="card border-0 shadow-sm rounded-3">
+    <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+        <h6 class="mb-0 fw-bold">Historial de Turnos Realizados</h6>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="CargarDatos">Refrescar</button>
+    </div>
+    <div class="card-body p-0">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-success"></div>
+                <div class="mt-2 text-muted small">Cargando turnos...</div>
+            </div>
+        }
+        else if (!HistorialCortes.Any())
+        {
+            <div class="text-center py-5 text-muted">
+                <div class="mb-2 text-muted">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+                </div>
+                <div>No se registran turnos de caja previos</div>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Cajero</th>
+                            <th>Apertura</th>
+                            <th>Cierre</th>
+                            <th class="text-end">Inicial</th>
+                            <th class="text-end">Ventas Efec.</th>
+                            <th class="text-end">Conteo Final</th>
+                            <th class="text-end">Diferencia</th>
+                            <th class="text-center">Estado</th>
+                            <th class="text-center">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in HistorialCortes)
+                        {
+                            <tr>
+                                <td class="fw-semibold">@(c.Usuario?.Nombre ?? "Cajero")</td>
+                                <td class="text-muted">@c.FechaApertura.ToString("dd/MM/yyyy hh:mm tt")</td>
+                                <td class="text-muted">@(c.FechaCierre.HasValue ? c.FechaCierre.Value.ToString("dd/MM/yyyy hh:mm tt") : "En curso")</td>
+                                <td class="text-end text-muted">$@c.MontoInicial.ToString("F2")</td>
+                                <td class="text-end text-success fw-semibold">+$@c.TotalVentas.ToString("F2")</td>
+                                <td class="text-end fw-bold">
+                                    @(c.MontoFinal.HasValue ? $"${c.MontoFinal.Value:F2}" : "-")
+                                </td>
+                                <td class="text-end fw-bold @(c.Diferencia == 0 ? "text-success" : (c.Diferencia > 0 ? "text-info" : "text-danger"))">
+                                    @(c.Estado == "Cerrada" ? (c.Diferencia >= 0 ? $"+${c.Diferencia:F2}" : $"-${Math.Abs(c.Diferencia):F2}") : "-")
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge @(c.Estado == "Abierta" ? "bg-success" : "bg-secondary")">
+                                        @c.Estado
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <button class="btn btn-sm btn-outline-success px-2 py-1" @onclick="() => VerTicketCorte(c)" title="Ver / Imprimir Ticket de Corte">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1">
+                                            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                                            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                                            <rect width="12" height="8" x="6" y="14"></rect>
+                                        </svg>
+                                        Ticket
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Modal de Arqueo Físico y Desglose de Efectivo (Billetes y Monedas para Corte X y Corte Z) -->
+<ArqueoEfectivoModal @bind-IsOpen="isArqueoModalOpen" 
+                     Corte="@CorteActivo" 
+                     TipoCorte="@TipoCorteSeleccionado" 
+                     OnCorteListoParaImprimir="MostrarTicketCorte"
+                     OnCajaCerrada="CargarDatos" />
+
+<!-- Modal Previsualización e Impresión Térmica de Ticket de Corte (X y Z) -->
+<CorteTicketModal @bind-IsOpen="isCorteTicketModalOpen" 
+                  Resumen="@ResumenCorteSeleccionado" />
+
+@code {
+    private CorteCaja? CorteActivo;
+    private List<CorteCaja> HistorialCortes = new();
+    private decimal MontoInicialApertura = 50.00m;
+    private bool isLoading = true;
+    private bool isProcessing;
+    private string? FeedbackMessage;
+    private bool isSuccess;
+
+    private bool isArqueoModalOpen;
+    private bool isCorteTicketModalOpen;
+    private string TipoCorteSeleccionado = "CORTE X";
+    private ResumenCorteDto? ResumenCorteSeleccionado;
+
+    private decimal TotalEsperado => CorteActivo != null ? (CorteActivo.MontoInicial + CorteActivo.TotalVentas) : 0.00m;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatos();
+    }
+
+    private async Task CargarDatos()
+    {
+        isLoading = true;
+        try
+        {
+            int? idUsuario = AuthService.CurrentUser?.IdUsuario;
+            CorteActivo = await CashRegisterService.GetCorteActivoAsync(idUsuario);
+            HistorialCortes = await CashRegisterService.GetHistorialCortesAsync() ?? new();
+        }
+        catch (Exception ex)
+        {
+            HistorialCortes = new();
+            FeedbackMessage = $"Error al cargar cortes de caja: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task AbrirCaja()
+    {
+        int idUsuario = AuthService.CurrentUser?.IdUsuario ?? 1;
+        isProcessing = true;
+        FeedbackMessage = null;
+
+        var result = await CashRegisterService.AbrirCajaAsync(idUsuario, MontoInicialApertura);
+        isProcessing = false;
+        isSuccess = result.Success;
+        FeedbackMessage = result.Message;
+
+        if (result.Success)
+        {
+            await CargarDatos();
+        }
+    }
+
+    private void AbrirArqueoX()
+    {
+        TipoCorteSeleccionado = "CORTE X";
+        isArqueoModalOpen = true;
+    }
+
+    private void AbrirArqueoZ()
+    {
+        TipoCorteSeleccionado = "CORTE Z";
+        isArqueoModalOpen = true;
+    }
+
+    private void MostrarTicketCorte(ResumenCorteDto resumen)
+    {
+        ResumenCorteSeleccionado = resumen;
+        isCorteTicketModalOpen = true;
+    }
+
+    private async Task VerTicketCorte(CorteCaja corte)
+    {
+        isLoading = true;
+        try
+        {
+            ResumenCorteSeleccionado = await CashRegisterService.GenerarResumenCorteAsync(corte.IdCorte, corte.Estado == "Abierta" ? "CORTE X" : "CORTE Z");
+            isCorteTicketModalOpen = true;
+        }
+        catch (Exception ex)
+        {
+            FeedbackMessage = $"Error al generar ticket de corte: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

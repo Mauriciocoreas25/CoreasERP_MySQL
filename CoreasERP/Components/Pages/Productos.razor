@@ -1,0 +1,2053 @@
+@page "/inventario"
+@page "/productos"
+@inject IProductService ProductService
+@inject ICategoryService CategoryService
+@inject IExcelExportService ExcelExportService
+@inject IAuthService AuthService
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<!-- Encabezado Superior -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <div class="text-muted small fw-semibold">
+            @(VistaActual == "productos" ? "Inventario de Productos" : "Categorías")
+        </div>
+        <div class="text-secondary small">
+            @(VistaActual == "productos" ? $"{ListaProductos.Count} producto(s) en el sistema" : $"{ListaCategorias.Count} categoría(s) registradas en el sistema")
+        </div>
+    </div>
+    <div class="text-muted small">
+        @DateTime.Now.ToString("dd MMM yyyy")
+    </div>
+</div>
+
+<!-- Barra de Título y Botonera Principal -->
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <div class="d-flex align-items-center gap-3">
+        <div>
+            <h4 class="fw-bold mb-0 text-dark">
+                @(VistaActual == "productos" ? "Inventario de Productos" : "Gestión de Categorías")
+            </h4>
+            <p class="text-muted small mb-0">
+                @(VistaActual == "productos" 
+                    ? "Manejo de artículos. Precios y existencias se actualizan a través de Compras." 
+                    : "Organización y clasificación de familias de artículos y catálogos.")
+            </p>
+        </div>
+    </div>
+
+    <!-- Botones de Acción Superior -->
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        @if (VistaActual == "productos")
+        {
+            <button class="btn btn-sm btn-outline-secondary bg-white text-dark shadow-sm d-flex align-items-center gap-1 px-3 py-2"
+                    @onclick="ExportarExcel" disabled="@isExporting">
+                <span>@(isExporting ? "Exportando..." : "Exportar Excel")</span>
+            </button>
+
+            <button class="btn btn-sm btn-outline-secondary bg-white text-dark shadow-sm d-flex align-items-center gap-1 px-3 py-2"
+                    @onclick="AbrirModalImportar">
+                <span>Importar Inventario</span>
+            </button>
+
+            <button class="btn btn-sm btn-outline-secondary bg-white text-dark shadow-sm d-flex align-items-center gap-1 px-3 py-2"
+                    @onclick="AbrirModalNuevaCategoria">
+                <span>Nueva Categoría</span>
+            </button>
+
+            <button class="btn btn-sm btn-outline-secondary bg-white text-dark shadow-sm d-flex align-items-center gap-1 px-3 py-2"
+                    @onclick='() => CambiarVista("categorias")'>
+                <span>Gestionar Categorías</span>
+            </button>
+
+            <button class="btn btn-sm btn-success shadow-sm d-flex align-items-center gap-1 px-3 py-2 fw-semibold"
+                    @onclick="AbrirModalNuevoProducto" style="background-color: #15803d; border-color: #15803d;">
+                <span>+ Nuevo Producto</span>
+            </button>
+        }
+        else
+        {
+            <button class="btn btn-sm btn-outline-secondary bg-white text-dark shadow-sm d-flex align-items-center gap-1 px-3 py-2"
+                    @onclick='() => CambiarVista("productos")'>
+                <span>Volver a Productos</span>
+            </button>
+
+            <button class="btn btn-sm btn-success shadow-sm d-flex align-items-center gap-1 px-3 py-2 fw-semibold"
+                    @onclick="AbrirModalNuevaCategoria" style="background-color: #15803d; border-color: #15803d;">
+                <span>+ Nueva Categoría</span>
+            </button>
+        }
+    </div>
+</div>
+
+<!-- Alerta de Notificaciones / Feedback -->
+@if (!string.IsNullOrEmpty(MensajeFeedback))
+{
+    <div class="alert @(FeedbackEsExito ? "alert-success border-success" : "alert-danger border-danger") alert-dismissible fade show shadow-sm mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2" role="alert">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <strong>@(FeedbackEsExito ? "Operación Exitosa" : "Atención")</strong>
+            </div>
+            <div class="small mt-1">@MensajeFeedback</div>
+            @if (!string.IsNullOrEmpty(UltimaRutaDescargada))
+            {
+                <div class="small text-muted font-monospace mt-1">
+                    Archivo: @UltimaRutaDescargada
+                </div>
+            }
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            @if (FeedbackEsExito && !string.IsNullOrEmpty(UltimaRutaDescargada))
+            {
+                <button class="btn btn-sm btn-success shadow-sm" @onclick="() => ExcelExportService.AbrirArchivo(UltimaRutaDescargada)">
+                    Abrir Excel
+                </button>
+                <button class="btn btn-sm btn-outline-secondary shadow-sm" @onclick="() => ExcelExportService.AbrirCarpeta(UltimaRutaDescargada)">
+                    Ver Carpeta
+                </button>
+            }
+            <button type="button" class="btn-close ms-2" @onclick='() => MensajeFeedback = null'></button>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- VISTA 1: LISTADO DE PRODUCTOS (SEGÚN CAPTURA media_1788564592763.png)    -->
+<!-- ========================================================================= -->
+@if (VistaActual == "productos")
+{
+    <div class="card border-0 shadow-sm rounded-3">
+        <!-- Cabecera de la tabla con Buscador -->
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <h6 class="mb-0 fw-bold">Listado</h6>
+            </div>
+            <div style="min-width: 280px; max-width: 400px; width: 100%;">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white border-end-0 text-muted">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    </span>
+                    <input type="text" class="form-control border-start-0 ps-0" 
+                           placeholder="Buscar por código, nombre..."
+                           @bind="TerminoBusqueda" @bind:event="oninput" @onkeyup="FiltrarProductos" />
+                    @if (!string.IsNullOrEmpty(TerminoBusqueda))
+                    {
+                        <button class="btn btn-outline-secondary border-start-0" type="button" @onclick="LimpiarBusqueda">&times;</button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            @if (isLoadingProductos)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-success" role="status"></div>
+                    <div class="mt-2 text-muted small">Cargando catálogo desde SQL Server...</div>
+                </div>
+            }
+            else if (!ProductosFiltrados.Any())
+            {
+                <div class="text-center py-5 text-muted small">
+                    <div class="mb-2 text-muted">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+                    </div>
+                    <div class="fw-semibold">No se encontraron productos</div>
+                    <div>@(string.IsNullOrEmpty(TerminoBusqueda) ? "Aún no hay productos registrados." : "No hay resultados para la búsqueda ingresada.")</div>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 small">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 40px;" class="text-center">#</th>
+                                <th style="width: 110px;">Código/SKU</th>
+                                <th>Nombre</th>
+                                <th>Categoría</th>
+                                <th class="text-end">Costo</th>
+                                <th class="text-end">Precio Venta</th>
+                                <th class="text-center">Stock</th>
+                                <th class="text-center">Stock Min.</th>
+                                <th class="text-center">Margen Excep.</th>
+                                <th class="text-center">Estado</th>
+                                <th class="text-center" style="width: 190px;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                int correlativoFila = ProductosFiltrados.Count;
+                            }
+                            @foreach (var prod in ProductosFiltrados)
+                            {
+                                var idx = correlativoFila--;
+                                <tr @key="prod.IdProducto">
+                                    <!-- Correlativo -->
+                                    <td class="text-center text-muted">@idx</td>
+
+                                    <!-- Código/SKU Badge -->
+                                    <td>
+                                        <span class="badge px-2 py-1" style="background-color: #475569; font-size: 11px; font-weight: 600;">
+                                            @(prod.Codigo ?? "S/C")
+                                        </span>
+                                    </td>
+
+                                    <!-- Nombre con imagen y descripción -->
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="rounded border d-flex align-items-center justify-content-center bg-light overflow-hidden shadow-sm"
+                                                 style="width: 36px; height: 36px; min-width: 36px;">
+                                                @if (!string.IsNullOrEmpty(prod.ImagenUrl))
+                                                {
+                                                    <img src="@prod.ImagenUrl" alt="@(prod.Nombre ?? "Producto")" 
+                                                         style="width: 100%; height: 100%; object-fit: cover;"
+                                                         onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+                                                    <span style="display: none; font-size: 11px; color: #94a3b8;">IMG</span>
+                                                }
+                                                else
+                                                {
+                                                    <span style="font-size: 11px; color: #94a3b8;">IMG</span>
+                                                }
+                                            </div>
+                                            <div>
+                                                <strong class="text-dark d-block">@(prod.Nombre ?? "(Sin nombre)")</strong>
+                                                @if (!string.IsNullOrWhiteSpace(prod.Descripcion))
+                                                {
+                                                    <span class="text-muted" style="font-size: 11px;">
+                                                        (@prod.Descripcion)
+                                                    </span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <!-- Categoría -->
+                                    <td>
+                                        <span class="badge rounded-pill px-3 py-1"
+                                              style="background-color: #d1fae5; color: #065f46; font-size: 11px; font-weight: 600;">
+                                            @(prod.Categoria?.Nombre ?? "Sin Categoría")
+                                        </span>
+                                    </td>
+
+                                    <!-- Costo Compra -->
+                                    <td class="text-end fw-semibold text-secondary">
+                                        <div>$@prod.PrecioCompra.ToString("F2")</div>
+                                        @if (prod.EsGranel && prod.CostoGranel.HasValue && prod.CostoGranel.Value > 0)
+                                        {
+                                            <div class="text-muted" style="font-size: 9.5px;" title="Costo unitario a granel">
+                                                Costo unit: $@prod.CostoGranel.Value.ToString("F4")
+                                            </div>
+                                        }
+                                    </td>
+
+                                    <!-- Precio Venta -->
+                                    <td class="text-end">
+                                        <div class="fw-bold text-dark" title="Precio Unitario / Individual">$@prod.PrecioVenta.ToString("F2")</div>
+                                        @if (prod.PrecioGranel.HasValue && prod.PrecioGranel.Value > 0)
+                                        {
+                                            <div class="badge bg-success bg-opacity-25 text-success border border-success px-1" style="font-size: 9.5px;" title="Precio de venta a granel / caja">
+                                                @(prod.UnidadMedida == "Caja" ? "Caja" : (prod.UnidadMedida == "Sobre" ? "Sobre" : (prod.UnidadMedida == "Paquete" ? "Paq" : (prod.UnidadMedida == "Libra" ? "Libra" : "Granel")))): $@prod.PrecioGranel.Value.ToString("F2")
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted" style="font-size: 10px;">(Solo Unit.)</span>
+                                        }
+                                    </td>
+
+                                    <!-- Stock Físico -->
+                                    <td class="text-center">
+                                        <span class="badge px-2 py-1 @(prod.Stock <= 0 ? "bg-danger bg-opacity-10 text-danger border border-danger" : (prod.Stock <= prod.StockMinimo ? "bg-warning bg-opacity-10 text-warning border border-warning" : "bg-success bg-opacity-10 text-success border border-success"))"
+                                              style="font-size: 12px; font-weight: 700;">
+                                            @prod.Stock.ToString("G29") @(string.Equals(prod.UnidadMedida, "Libra", StringComparison.OrdinalIgnoreCase) ? "lb" : (string.Equals(prod.UnidadMedida, "Kilogramo", StringComparison.OrdinalIgnoreCase) ? "kg" : (string.Equals(prod.UnidadMedida, "Gramo", StringComparison.OrdinalIgnoreCase) ? "g" : "uds")))
+                                        </span>
+                                        @if (prod.EsGranel)
+                                        {
+                                            <div class="badge bg-info bg-opacity-25 text-info-emphasis border border-info px-1 mt-1" style="font-size: 9.5px;">
+                                                GRANEL
+                                            </div>
+                                        }
+                                    </td>
+
+                                    <!-- Stock Mínimo -->
+                                    <td class="text-center text-muted">
+                                        @prod.StockMinimo.ToString("G29")
+                                    </td>
+
+                                    <!-- Margen Excepción -->
+                                    <td class="text-center text-muted">
+                                        @prod.MargenExcepcion.ToString("0")%
+                                    </td>
+
+                                    <!-- Estado (Activo / Inactivo) -->
+                                    <td class="text-center">
+                                        @if (prod.Estado)
+                                        {
+                                            <span class="badge rounded-pill px-2 py-1"
+                                                  style="background-color: #dcfce7; color: #166534; font-size: 11px; font-weight: 600;">
+                                                ● Activo
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge rounded-pill px-2 py-1 bg-light text-muted border"
+                                                  style="font-size: 11px; font-weight: 600;">
+                                                ● Inactivo
+                                            </span>
+                                        }
+                                    </td>
+
+                                    <!-- Botonera de Acciones (5 botones como en la imagen) -->
+                                    <td class="text-center">
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <!-- 1. Editar Producto (Amarillo) -->
+                                            <button class="btn btn-warning btn-sm text-white px-2 py-1"
+                                                    style="background-color: #f59e0b; border-color: #f59e0b;"
+                                                    title="Editar datos del producto"
+                                                    @onclick="() => AbrirModalEditar(prod)">
+                                                Editar
+                                            </button>
+
+                                            <!-- 2. Actualizar Stock bajo supervisión (Verde) -->
+                                            <button class="btn btn-success btn-sm px-2 py-1 fw-semibold"
+                                                    style="background-color: #15803d; border-color: #15803d; font-size: 11px;"
+                                                    title="Ajustar stock bajo supervisión administrativa"
+                                                    @onclick="() => AbrirModalAjusteStock(prod)">
+                                                Stock
+                                            </button>
+
+                                            <!-- 3. Gestionar Materiales / BOM (Azul) -->
+                                            <button class="btn btn-primary btn-sm px-2 py-1 fw-semibold"
+                                                    style="font-size: 11px;"
+                                                    title="Gestionar materiales e insumos de producción (BOM)"
+                                                    @onclick="() => AbrirModalMateriales(prod)">
+                                                BOM
+                                            </button>
+
+                                            <!-- 4. Activar / Desactivar (Naranja/Rojo) -->
+                                            <button class="btn btn-sm px-2 py-1 fw-semibold @(prod.Estado ? "btn-outline-secondary" : "btn-secondary")"
+                                                    style="@(prod.Estado ? "background-color: #ea580c; border-color: #ea580c; color: #fff; font-size: 11px;" : "font-size: 11px;")"
+                                                    title="@(prod.Estado ? "Desactivar artículo" : "Activar artículo")"
+                                                    @onclick="() => ToggleEstadoProducto(prod)">
+                                                @(prod.Estado ? "Desact." : "Activar")
+                                            </button>
+
+                                            <!-- 5. Eliminar (Rojo oscuro) -->
+                                            <button class="btn btn-danger btn-sm px-2 py-1 fw-semibold"
+                                                    style="background-color: #dc2626; border-color: #dc2626; font-size: 11px;"
+                                                    title="Eliminar artículo (solo si no tiene ventas históricas)"
+                                                    @onclick="() => SolicitarEliminarProducto(prod)">
+                                                &times;
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <!-- ========================================================================= -->
+    <!-- VISTA 2: GESTIÓN DE CATEGORÍAS                                            -->
+    <!-- ========================================================================= -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <h6 class="mb-0 fw-bold">Listado de Categorías</h6>
+            </div>
+            <div style="min-width: 280px; max-width: 400px; width: 100%;">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white border-end-0 text-muted">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    </span>
+                    <input type="text" class="form-control border-start-0 ps-0" 
+                           placeholder="Buscar categoría..."
+                           @bind="TerminoBusquedaCategoria" @bind:event="oninput" @onkeyup="FiltrarCategorias" />
+                </div>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            @if (isLoadingCategorias)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-success" role="status"></div>
+                    <div class="mt-2 text-muted small">Cargando categorías...</div>
+                </div>
+            }
+            else if (!CategoriasFiltradas.Any())
+            {
+                <div class="text-center py-5 text-muted small">
+                    <div class="mb-2 text-muted">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                    </div>
+                    <div class="fw-semibold">No se encontraron categorías</div>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 small">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 50px;" class="text-center">#</th>
+                                <th>Nombre de Categoría</th>
+                                <th>Descripción</th>
+                                <th class="text-center" style="width: 100px;">Artículos</th>
+                                <th class="text-center" style="width: 180px;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                int correlativoCat = 1;
+                            }
+                            @foreach (var cat in CategoriasFiltradas)
+                            {
+                                var idx = correlativoCat++;
+                                <tr @key="cat.IdCategoria">
+                                    <td class="text-center text-muted">@idx</td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="rounded border d-flex align-items-center justify-content-center bg-light overflow-hidden shadow-sm"
+                                                 style="width: 32px; height: 32px;">
+                                                @if (!string.IsNullOrEmpty(cat.ImagenUrl))
+                                                {
+                                                    <img src="@cat.ImagenUrl" alt="@cat.Nombre"
+                                                         style="width: 100%; height: 100%; object-fit: cover;"
+                                                         onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+                                                    <span style="display: none; font-size: 10px; color: #94a3b8;">CAT</span>
+                                                }
+                                                else
+                                                {
+                                                    <span style="font-size: 10px; color: #94a3b8;">CAT</span>
+                                                }
+                                            </div>
+                                            <strong class="text-dark">@cat.Nombre</strong>
+                                        </div>
+                                    </td>
+                                    <td class="text-muted">@(string.IsNullOrEmpty(cat.Descripcion) ? "-" : cat.Descripcion)</td>
+                                    <td class="text-center">
+                                        <span class="badge bg-light text-dark border">
+                                            @cat.TotalProductos productos
+                                        </span>
+                                    </td>
+                                    <td class="text-center">
+                                        <div class="d-flex justify-content-center gap-2">
+                                            <button class="btn btn-warning btn-sm text-white px-3 py-1"
+                                                    style="background-color: #d97706; border-color: #d97706;"
+                                                    @onclick="() => AbrirModalEditarCategoria(cat)">
+                                                Editar
+                                            </button>
+                                            <button class="btn btn-danger btn-sm px-3 py-1"
+                                                    style="background-color: #991b1b; border-color: #991b1b;"
+                                                    @onclick="() => EliminarCategoria(cat)">
+                                                Eliminar
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MODAL 1: REGISTRAR / EDITAR PRODUCTO (SEGÚN media_1788564987362.png)       -->
+<!-- ========================================================================= -->
+@if (MostrarModalProducto)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.55);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+            <div class="modal-content border-0 shadow-lg rounded-3">
+                <div class="modal-header border-bottom py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <h6 class="modal-title fw-bold mb-0">
+                            @(ProductoEditando.IdProducto == 0 ? "Registrar Nuevo Producto" : "Editar Producto")
+                        </h6>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CerrarModalProducto"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <div class="row g-3">
+                        <!-- Fila 1: Código/SKU y Categoría -->
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">Código / SKU *</label>
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control font-monospace" placeholder="Ej: SKU-100"
+                                       @bind="ProductoEditando.Codigo" />
+                                <button class="btn btn-outline-secondary" type="button" @onclick="GenerarCodigoBarrasAleatorio" title="Generar código aleatorio">
+                                    Generar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">Categoría *</label>
+                            <select class="form-select form-select-sm" @bind="ProductoEditando.IdCategoria">
+                                <option value="0">Seleccionar...</option>
+                                @foreach (var c in CategoriasParaCombo)
+                                {
+                                    <option value="@c.IdCategoria">@c.Nombre</option>
+                                }
+                            </select>
+                        </div>
+
+                        <!-- Fila 2: Nombre del Producto -->
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold">Nombre del Producto *</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="Ej: Café Clásico 50g / Tomate de Cocina"
+                                   @bind="ProductoEditando.Nombre" />
+                        </div>
+
+                        <!-- SECCIÓN: PRECIOS Y PRESENTACIONES DE VENTA -->
+                        <div class="col-12">
+                            <div class="p-3 border rounded-3 bg-light shadow-sm">
+                                <div class="fw-bold text-dark small mb-2 d-flex align-items-center gap-2">
+                                    <span class="badge bg-success px-2 py-1">PRECIOS Y PRESENTACIONES</span>
+                                    <span class="text-muted small">Defina el precio unitario y, si aplica, el precio por caja o a granel.</span>
+                                </div>
+
+                                <div class="row g-2 align-items-end">
+                                    <!-- Costo Compra -->
+                                    <div class="col-12 col-md-4">
+                                        <label class="form-label small fw-semibold">Precio Compra / Costo Base ($)</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">$</span>
+                                            <input type="number" step="0.01" min="0" class="form-control text-end"
+                                                   @bind="ProductoEditando.PrecioCompra" 
+                                                   @bind:after="OnPrecioCompraChanged" />
+                                        </div>
+                                        <div class="text-muted" style="font-size: 10.5px;">Costo de adquisición de caja/empaque</div>
+                                    </div>
+
+                                    <!-- Precio Venta Unitario -->
+                                    <div class="col-12 col-md-4">
+                                        <label class="form-label small fw-semibold text-primary">Precio Venta Unitario ($) *</label>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-primary text-white fw-bold">$</span>
+                                            <input type="number" step="0.01" min="0" class="form-control text-end fw-bold text-primary"
+                                                   @bind="ProductoEditando.PrecioVenta" />
+                                        </div>
+                                        <div class="text-muted" style="font-size: 10.5px;">Por sobre, pieza o unidad</div>
+                                    </div>
+
+                                    <!-- Margen Unitario Calculado -->
+                                    <div class="col-12 col-md-4">
+                                        <label class="form-label small fw-semibold text-muted">Margen Unitario</label>
+                                        <div class="form-control form-control-sm bg-white text-center fw-bold @(CalcularMargenUnitario() >= 20 ? "text-success" : (CalcularMargenUnitario() > 0 ? "text-warning" : "text-danger"))">
+                                            @CalcularMargenUnitario().ToString("F1")%
+                                        </div>
+                                        <div class="text-muted" style="font-size: 10.5px;">Ganancia sobre el costo base</div>
+                                    </div>
+
+                                    <!-- Switch para Venta a Granel / Presentación Mayor (Caja) -->
+                                    <div class="col-12 mt-2 pt-2 border-top">
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="chkModalEsGranel"
+                                                   @bind="ProductoEditando.EsGranel" />
+                                            <label class="form-check-label small fw-bold text-dark" for="chkModalEsGranel">
+                                                ¿Vender también a Granel, por Peso o Fraccionado (Sobres / Caja / Libra)?
+                                            </label>
+                                            <div class="text-muted small" style="font-size: 11px;">
+                                                Active esto si el producto se adquiere en paquete o caja y se vende por sobres, por libra o piezas sueltas (ej: caja de café de 24 sobres).
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    @if (ProductoEditando.EsGranel)
+                                    {
+                                        <div class="col-12">
+                                            <div class="p-3 rounded-3 bg-white border shadow-sm">
+                                                <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom">
+                                                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 fw-bold">
+                                                        CONFIGURACIÓN DE VENTA FRACCIONADA / A GRANEL
+                                                    </span>
+                                                    <span class="text-muted small" style="font-size: 11px;">
+                                                        Permite calcular el costo fraccionado y margen real de ganancia
+                                                    </span>
+                                                </div>
+
+                                                <div class="row g-2 align-items-end">
+                                                    <!-- Unidad de Medida -->
+                                                    <div class="col-12 col-md-3">
+                                                        <label class="form-label small fw-semibold">Presentación / Unidad *</label>
+                                                        <select class="form-select form-select-sm" @bind="ProductoEditando.UnidadMedida">
+                                                            <option value="Sobre">Sobre (Cat. 59 MH)</option>
+                                                            <option value="Unidad">Unidad / Pieza (Cat. 59 MH)</option>
+                                                            <option value="Libra">Libra (lb - Cat. 26 MH)</option>
+                                                            <option value="Kilogramo">Kilogramo (kg - Cat. 24 MH)</option>
+                                                            <option value="Gramo">Gramo (g - Cat. 23 MH)</option>
+                                                            <option value="Caja">Caja (Cat. 59 MH)</option>
+                                                            <option value="Paquete">Paquete (Cat. 59 MH)</option>
+                                                        </select>
+                                                        <div class="text-muted" style="font-size: 10px;">Unidad en ticket y DTE</div>
+                                                    </div>
+
+                                                    <!-- Cantidad por Empaque / Factor -->
+                                                    <div class="col-12 col-md-3">
+                                                        <label class="form-label small fw-semibold text-dark">
+                                                            Piezas por Empaque / Caja
+                                                        </label>
+                                                        <div class="input-group input-group-sm">
+                                                            <input type="number" step="any" min="0.001" class="form-control text-center fw-bold"
+                                                                   @bind="ProductoEditando.CantidadPorEmpaque" 
+                                                                   @bind:after="OnCantidadPorEmpaqueChanged"
+                                                                   placeholder="Ej: 24" />
+                                                            <span class="input-group-text small">uds</span>
+                                                        </div>
+                                                        <div class="text-muted" style="font-size: 10px;">¿Cuántos sobres/piezas trae la caja?</div>
+                                                    </div>
+
+                                                    <!-- Costo Granel Unitario -->
+                                                    <div class="col-12 col-md-3">
+                                                        <label class="form-label small fw-semibold text-secondary">
+                                                            Costo a Granel Unitario ($)
+                                                        </label>
+                                                        <div class="input-group input-group-sm">
+                                                            <span class="input-group-text">$</span>
+                                                            <input type="number" step="0.0001" min="0" class="form-control text-end fw-semibold text-secondary"
+                                                                   @bind="ProductoEditando.CostoGranel" 
+                                                                   @bind:after="OnCostoGranelChanged"
+                                                                   placeholder="@(ObtenerCostoGranelEfectivo().ToString("F4"))" />
+                                                        </div>
+                                                        <div class="text-muted" style="font-size: 10px;">Costo Compra ÷ Piezas empaque</div>
+                                                    </div>
+
+                                                    <!-- Precio Venta a Granel -->
+                                                    <div class="col-12 col-md-3">
+                                                        <label class="form-label small fw-semibold text-success">Precio Venta Granel ($) *</label>
+                                                        <div class="input-group input-group-sm">
+                                                            <span class="input-group-text bg-success text-white fw-bold">$</span>
+                                                            <input type="number" step="0.01" min="0" class="form-control text-end fw-bold text-success"
+                                                                   @bind="ProductoEditando.PrecioGranel" placeholder="0.00" />
+                                                        </div>
+                                                        <div class="text-muted" style="font-size: 10px;">Precio de cada sobre o unidad</div>
+                                                    </div>
+
+                                                    <!-- Resumen de Margen y Ganancia Real -->
+                                                    <div class="col-12 mt-2">
+                                                        <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border flex-wrap gap-2">
+                                                            <div class="small">
+                                                                <span class="text-muted">Costo Fracción:</span>
+                                                                <strong class="text-dark ms-1">$@ObtenerCostoGranelEfectivo().ToString("F4")</strong>
+                                                                <span class="text-muted ms-3">Precio Venta:</span>
+                                                                <strong class="text-success ms-1">$@(ProductoEditando.PrecioGranel?.ToString("F2") ?? "0.00")</strong>
+                                                                <span class="text-muted ms-3">Ganancia por @ProductoEditando.UnidadMedida:</span>
+                                                                <strong class="@(CalcularGananciaGranel() >= 0 ? "text-success" : "text-danger") ms-1">
+                                                                    @(CalcularGananciaGranel() >= 0 ? "+" : "")$@CalcularGananciaGranel().ToString("F2")
+                                                                </strong>
+                                                            </div>
+                                                            <div class="badge @(CalcularMargenGranel() >= 20 ? "bg-success" : (CalcularMargenGranel() > 0 ? "bg-warning text-dark" : "bg-danger")) px-3 py-1 fs-6">
+                                                                Margen Real: @CalcularMargenGranel().ToString("F1")%
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="col-12 mt-1">
+                                                        <div class="alert alert-success bg-opacity-10 border-success py-1 px-2 small mb-0 d-flex align-items-center gap-2" style="font-size: 11px;">
+                                                            <span>💡 En el POS podrás alternar entre el precio regular ($@ProductoEditando.PrecioVenta.ToString("F2")) y el precio de caja/granel ($@(ProductoEditando.PrecioGranel?.ToString("F2") ?? "0.00")) presionando la <strong>Barra Espaciadora</strong>.</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Fila 3: Descripción (E-commerce / Ficha Técnica) -->
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold">Descripción del Producto (E-commerce / Ficha Técnica)</label>
+                            <textarea class="form-control form-control-sm" rows="2"
+                                      placeholder="Escribe aquí las especificaciones, características, detalles o modo de uso del producto..."
+                                      @bind="ProductoEditando.Descripcion"></textarea>
+                        </div>
+
+                        <!-- Fila 4: Stocks y Margen Excepción -->
+                        @if (ProductoEditando.IdProducto == 0)
+                        {
+                            <div class="col-12 col-md-4">
+                                <label class="form-label small fw-semibold">Stock Inicial (@(ProductoEditando.UnidadMedida ?? "Unidad"))</label>
+                                <input type="number" step="@(ProductoEditando.EsGranel ? "any" : "1")" min="0" class="form-control form-control-sm"
+                                       @bind="ProductoEditando.Stock" />
+                                <div class="text-muted" style="font-size: 10.5px;">Existencias físicas iniciales</div>
+                            </div>
+                        }
+
+                        <div class="col-12 col-md-@(ProductoEditando.IdProducto == 0 ? "4" : "6")">
+                            <label class="form-label small fw-semibold">Stock Mínimo Alerta *</label>
+                            <input type="number" step="@(ProductoEditando.EsGranel ? "any" : "1")" class="form-control form-control-sm" min="1"
+                                   @bind="ProductoEditando.StockMinimo" />
+                        </div>
+
+                        <div class="col-12 col-md-@(ProductoEditando.IdProducto == 0 ? "4" : "6")">
+                            <label class="form-label small fw-semibold">Margen Excepción (%)</label>
+                            <input type="number" step="0.01" class="form-control form-control-sm" placeholder="Ej: 25.00 (opcional)"
+                                   @bind="ProductoEditando.MargenExcepcion" />
+                        </div>
+
+                        <!-- Fila 5: Imagen (Subida de Archivo o URL Web) -->
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold d-flex justify-content-between align-items-center mb-1">
+                                <span>Imagen del Producto (E-commerce / Archivo o URL)</span>
+                                <span class="text-muted" style="font-size: 10px;">JPG, PNG, WEBP (se guarda la ruta/URL en BD)</span>
+                            </label>
+
+                            <div class="row g-2 align-items-center">
+                                <div class="col-12 col-md-6">
+                                    <label class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-center gap-2 py-2 mb-0 shadow-sm"
+                                           style="cursor: pointer; border-style: dashed;">
+                                        <span>Subir Imagen desde el Equipo</span>
+                                        <InputFile OnChange="SubirImagenProducto" accept=".jpg,.jpeg,.png,.webp,.svg" style="display: none;" />
+                                    </label>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-white text-muted">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                        </span>
+                                        <input type="text" class="form-control" placeholder="O pega una URL web..."
+                                               @bind="ProductoEditando.ImagenUrl" @bind:after="ActualizarPreviewUrlProducto" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            @if (isUploadingImagenProducto)
+                            {
+                                <div class="mt-2 small text-primary d-flex align-items-center gap-2">
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    <span>Guardando imagen en almacenamiento local...</span>
+                                </div>
+                            }
+                            else if (!string.IsNullOrEmpty(PreviewImagenProductoData) || !string.IsNullOrEmpty(ProductoEditando.ImagenUrl))
+                            {
+                                <div class="d-flex align-items-center gap-3 mt-3 p-2 bg-light border rounded-3">
+                                    <img src="@(string.IsNullOrEmpty(PreviewImagenProductoData) ? ProductoEditando.ImagenUrl : PreviewImagenProductoData)" 
+                                         alt="Vista previa" 
+                                         style="width: 50px; height: 50px; object-fit: cover; border-radius: 6px;" class="border shadow-sm bg-white"
+                                         onerror="this.style.display='none'" />
+                                    <div class="flex-grow-1 overflow-hidden">
+                                        <div class="small fw-semibold text-dark text-truncate">Imagen lista</div>
+                                        <div class="text-muted small font-monospace text-truncate" style="font-size: 11px;">
+                                            @ProductoEditando.ImagenUrl
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-danger py-1 px-2" @onclick="QuitarImagenProducto" title="Eliminar imagen">
+                                        Quitar
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary px-3" @onclick="CerrarModalProducto">
+                        Cancelar
+                    </button>
+                    <button type="button" class="btn btn-sm btn-success px-3 fw-semibold"
+                            style="background-color: #15803d; border-color: #15803d;"
+                            @onclick="GuardarProducto" disabled="@isSavingProducto">
+                        <span>@(isSavingProducto ? "Guardando..." : "Guardar Producto")</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MODAL 2: AJUSTE DE STOCK BAJO SUPERVISIÓN ADMINISTRATIVA                  -->
+<!-- ========================================================================= -->
+@if (MostrarModalAjuste)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.55);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-3">
+                <div class="modal-header border-bottom py-3 bg-light">
+                    <div class="d-flex align-items-center gap-2">
+                        <h6 class="modal-title fw-bold mb-0">Ajuste de Stock Bajo Supervisión</h6>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => MostrarModalAjuste = false"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <div class="alert alert-warning border-warning py-2 small mb-3">
+                        <strong>Control de Auditoría:</strong> El inventario ordinario proviene de Compras. Los ajustes excepcionales deben ser autorizados por un <strong>Administrador o Supervisor</strong>.
+                    </div>
+
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <div class="fw-bold text-dark">@ProductoAjustando?.Nombre</div>
+                        <div class="small text-muted font-monospace">SKU: @ProductoAjustando?.Codigo</div>
+                        <div class="d-flex justify-content-between align-items-center mt-2 pt-2 border-top">
+                            <span class="small text-muted">Stock Físico Actual:</span>
+                            <span class="badge bg-secondary fs-6">@ProductoAjustando?.Stock</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Nuevo Stock Físico *</label>
+                        <input type="number" step="any" class="form-control form-control-sm" min="0" @bind="NuevoStockAjuste" />
+                        <div class="small mt-1 text-muted">
+                            Diferencia: 
+                            <strong class="@(NuevoStockAjuste >= (ProductoAjustando?.Stock ?? 0m) ? "text-success" : "text-danger")">
+                                @((NuevoStockAjuste - (ProductoAjustando?.Stock ?? 0m)).ToString("G29")) @(ProductoAjustando?.UnidadMedida ?? "uds")
+                            </strong>
+                        </div>
+
+                        @if (NuevoStockAjuste < (ProductoAjustando?.Stock ?? 0m))
+                        {
+                            var diffUds = (ProductoAjustando?.Stock ?? 0m) - NuevoStockAjuste;
+                            var costoUnit = ProductoAjustando?.PrecioCompra ?? 0.00m;
+                            var perdidaCosto = diffUds * costoUnit;
+                            <div class="alert alert-danger py-2 px-3 small mt-2 mb-0 rounded-2 border-danger">
+                                <div class="fw-bold d-flex align-items-center gap-1">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                    Impacto Contable (Merma / Salida a Costo):
+                                </div>
+                                <div class="mt-1">
+                                    Reducción de <strong>@diffUds.ToString("G29")</strong> unidades a costo de adquisición (<strong>$@costoUnit.ToString("N2")</strong> c/u).
+                                </div>
+                                <div class="mt-1 fw-bold text-danger">
+                                    Pérdida Contable a Costo: $@perdidaCosto.ToString("N2")
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Motivo del Ajuste / Tipo de Salida *</label>
+                        <select class="form-select form-select-sm" @bind="MotivoAjuste">
+                            <option value="">-- Seleccionar motivo --</option>
+                            <option value="Merma por plagas / roedores">Merma por plagas / roedores</option>
+                            <option value="Producto dañado / roto / golpeado">Producto dañado / roto / golpeado</option>
+                            <option value="Producto vencido / caducidad">Producto vencido / caducidad</option>
+                            <option value="Consumo interno / Gasto operativo de tienda">Consumo interno / Gasto operativo de tienda</option>
+                            <option value="Claim / Reclamo y devolución a proveedor">Claim / Reclamo y devolución a proveedor</option>
+                            <option value="Conteo físico / Ajuste de inventario">Conteo físico / Ajuste de inventario</option>
+                            <option value="Corrección por error de digitación">Corrección por error de digitación</option>
+                        </select>
+                    </div>
+
+                    <hr />
+
+                    <div class="fw-bold small text-dark mb-2">Credenciales de Autorización (Supervisor/Admin)</div>
+
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small">Usuario Supervisor *</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="Ej: admin"
+                                   @bind="SupervisorUsuario" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Contraseña *</label>
+                            <input type="password" class="form-control form-control-sm" placeholder="••••••"
+                                   @bind="SupervisorClave" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => MostrarModalAjuste = false">
+                        Cancelar
+                    </button>
+                    <button type="button" class="btn btn-sm btn-success fw-semibold"
+                            style="background-color: #15803d; border-color: #15803d;"
+                            @onclick="EjecutarAjusteStock" disabled="@isExecutingAjuste">
+                        <span>@(isExecutingAjuste ? "Verificando..." : "Autorizar & Aplicar")</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MODAL 3: GESTIÓN DE MATERIALES / INSUMOS (BOM - BILL OF MATERIALS)        -->
+<!-- ========================================================================= -->
+@if (MostrarModalMateriales)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.55);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-3">
+                <div class="modal-header border-bottom py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <div>
+                            <h6 class="modal-title fw-bold mb-0">Gestión de Materiales / Composición</h6>
+                            <div class="small text-muted">@ProductoMaterialPadre?.Nombre (@ProductoMaterialPadre?.Codigo)</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => MostrarModalMateriales = false"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <div class="alert alert-light border small mb-3">
+                        <strong>Composición de Producción:</strong> Asocia los insumos o materiales del catálogo requeridos para confeccionar este artículo. Al venderlo o producirlo, el sistema podrá descontar de forma automática cada uno de estos materiales.
+                    </div>
+
+                    <!-- Formulario para agregar material -->
+                    <div class="card border p-3 mb-4 bg-light rounded-3">
+                        <div class="fw-bold small text-dark mb-2">+ Vincular Nuevo Material / Insumo</div>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-12 col-md-7">
+                                <label class="form-label small">Seleccionar Insumo del Catálogo</label>
+                                <select class="form-select form-select-sm" @bind="IdInsumoSeleccionado">
+                                    <option value="0">-- Seleccionar insumo --</option>
+                                    @foreach (var ins in ListaProductos.Where(p => p.IdProducto != ProductoMaterialPadre?.IdProducto))
+                                    {
+                                        <option value="@ins.IdProducto">
+                                            @ins.Nombre (@ins.Codigo) - Stock: @ins.Stock
+                                        </option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-12 col-md-3">
+                                <label class="form-label small">Cantidad Requerida</label>
+                                <input type="number" step="0.01" min="0.01" class="form-control form-control-sm"
+                                       @bind="CantidadMaterial" />
+                            </div>
+                            <div class="col-12 col-md-2">
+                                <button class="btn btn-sm btn-success w-100 fw-semibold"
+                                        style="background-color: #15803d; border-color: #15803d;"
+                                        @onclick="AgregarMaterial" disabled="@(IdInsumoSeleccionado <= 0 || CantidadMaterial <= 0)">
+                                    Agregar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Listado de materiales actuales -->
+                    <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+                        <table class="table table-hover align-middle mb-0 small">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>Insumo / Material</th>
+                                    <th>Código</th>
+                                    <th class="text-center">Stock Insumo</th>
+                                    <th class="text-center">Cantidad Requerida</th>
+                                    <th class="text-end">Costo Est. ($)</th>
+                                    <th class="text-center">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (!MaterialesActuales.Any())
+                                {
+                                    <tr>
+                                        <td colspan="6" class="text-center py-4 text-muted">
+                                            No se han vinculado materiales para este producto aún.
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var mat in MaterialesActuales)
+                                    {
+                                        <tr>
+                                            <td class="fw-semibold">@mat.ProductoInsumo?.Nombre</td>
+                                            <td class="font-monospace text-muted">@mat.ProductoInsumo?.Codigo</td>
+                                            <td class="text-center">
+                                                <span class="badge bg-light text-dark border">
+                                                    @mat.ProductoInsumo?.Stock
+                                                </span>
+                                            </td>
+                                            <td class="text-center fw-bold text-success">
+                                                @mat.Cantidad.ToString("0.##")
+                                            </td>
+                                            <td class="text-end text-muted">
+                                                $@(((mat.ProductoInsumo?.PrecioCompra ?? 0) * mat.Cantidad).ToString("F2"))
+                                            </td>
+                                            <td class="text-center">
+                                                <button class="btn btn-outline-danger btn-sm py-0 px-2"
+                                                        @onclick="() => EliminarMaterial(mat.IdProductoMaterial)">
+                                                    &times;
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top py-2">
+                    <button type="button" class="btn btn-sm btn-secondary px-3" @onclick="() => MostrarModalMateriales = false">
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MODAL 4: NUEVA / EDITAR CATEGORÍA (SEGÚN media_1788565068590.png)          -->
+<!-- ========================================================================= -->
+@if (MostrarModalCategoria)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.55);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-3">
+                <div class="modal-header border-bottom py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <h6 class="modal-title fw-bold mb-0">
+                            @(CategoriaEditando.IdCategoria == 0 ? "Nueva Categoría" : "Editar Categoría")
+                        </h6>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => MostrarModalCategoria = false"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Nombre de la Categoría *</label>
+                        <input type="text" class="form-control form-control-sm" placeholder="Ej: Electrónica, Ropa..."
+                               @bind="CategoriaEditando.Nombre" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Descripción (opcional)</label>
+                        <input type="text" class="form-control form-control-sm" placeholder="Breve descripción..."
+                               @bind="CategoriaEditando.Descripcion" />
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold">Clase de Icono *</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="fa-box"
+                                   @bind="CategoriaEditando.Icono" />
+                            <div class="text-muted small mt-1" style="font-size: 10px;">
+                                Use nombres FontAwesome 6 (ej: fa-laptop, fa-soap, fa-box).
+                            </div>
+                        </div>
+                        <div class="col-12 mt-2">
+                            <label class="form-label small fw-semibold d-flex justify-content-between align-items-center mb-1">
+                                <span>Imagen de Categoría (E-commerce / Archivo o URL)</span>
+                                <span class="text-muted" style="font-size: 10px;">JPG, PNG, WEBP</span>
+                            </label>
+                            <div class="row g-2 align-items-center">
+                                <div class="col-12 col-md-6">
+                                    <label class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-center gap-2 py-2 mb-0 shadow-sm"
+                                           style="cursor: pointer; border-style: dashed;">
+                                        <span>Subir Imagen desde el Equipo</span>
+                                        <InputFile OnChange="SubirImagenCategoria" accept=".jpg,.jpeg,.png,.webp,.svg" style="display: none;" />
+                                    </label>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-white text-muted">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                        </span>
+                                        <input type="text" class="form-control" placeholder="O pega una URL web..."
+                                               @bind="CategoriaEditando.ImagenUrl" @bind:after="ActualizarPreviewUrlCategoria" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            @if (isUploadingImagenCategoria)
+                            {
+                                <div class="mt-2 small text-success d-flex align-items-center gap-2">
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    <span>Guardando imagen de categoría...</span>
+                                </div>
+                            }
+                            else if (!string.IsNullOrEmpty(PreviewImagenCategoriaData) || !string.IsNullOrEmpty(CategoriaEditando.ImagenUrl))
+                            {
+                                <div class="d-flex align-items-center gap-3 mt-3 p-2 bg-light border rounded-3">
+                                    <img src="@(string.IsNullOrEmpty(PreviewImagenCategoriaData) ? CategoriaEditando.ImagenUrl : PreviewImagenCategoriaData)" 
+                                         alt="Vista previa" 
+                                         style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px;" class="border shadow-sm bg-white"
+                                         onerror="this.style.display='none'" />
+                                    <div class="flex-grow-1 overflow-hidden">
+                                        <div class="small fw-semibold text-dark text-truncate">Imagen lista</div>
+                                        <div class="text-muted small font-monospace text-truncate" style="font-size: 11px;">
+                                            @CategoriaEditando.ImagenUrl
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-danger py-1 px-2" @onclick="QuitarImagenCategoria" title="Eliminar imagen">
+                                        Quitar
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary px-3" @onclick="() => MostrarModalCategoria = false">
+                        Cancelar
+                    </button>
+                    <button type="button" class="btn btn-sm btn-success px-3 fw-semibold"
+                            style="background-color: #15803d; border-color: #15803d;"
+                            @onclick="GuardarCategoria" disabled="@isSavingCategoria">
+                        <span>@(isSavingCategoria ? "Guardando..." : "Guardar")</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MODAL 5: IMPORTAR INVENTARIO DESDE EXCEL O CSV                            -->
+<!-- ========================================================================= -->
+@if (MostrarModalImportar)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.55);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-3">
+                <div class="modal-header border-bottom py-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <h6 class="modal-title fw-bold mb-0">Importar Inventario (Excel / CSV)</h6>
+                    </div>
+                    <button type="button" class="btn-close" disabled="@isImporting" @onclick="CerrarModalImportar"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <div class="alert alert-light border small mb-3">
+                        Permite actualizar o crear productos en lote mediante un archivo de <strong>Excel (.xlsx)</strong> o <strong>delimitado (.csv)</strong>.<br />
+                        Si el código o SKU ya existe, se actualizarán los precios y existencias; si no existe, se registrará como nuevo producto.
+                    </div>
+
+                    <div class="mb-3 d-flex justify-content-between align-items-center">
+                        <span class="small text-muted">¿Necesitas el formato de ejemplo?</span>
+                        <button type="button" class="btn btn-sm btn-outline-primary" @onclick="DescargarPlantillaExcel" disabled="@isImporting">
+                            <span>Descargar Plantilla (.xlsx)</span>
+                        </button>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(RutaPlantillaDescargada))
+                    {
+                        <div class="alert alert-success d-flex align-items-center justify-content-between p-2 small mb-3">
+                            <div class="d-flex align-items-center gap-2 text-truncate me-2">
+                                <span class="text-truncate">Plantilla guardada en <strong>Descargas</strong></span>
+                            </div>
+                            <div class="d-flex gap-1 flex-shrink-0">
+                                <button type="button" class="btn btn-sm btn-success py-0 px-2" @onclick="() => ExcelExportService.AbrirArchivo(RutaPlantillaDescargada)">
+                                    Abrir
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" @onclick="() => ExcelExportService.AbrirCarpeta(RutaPlantillaDescargada)">
+                                    Carpeta
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Seleccionar archivo Excel (.xlsx) o CSV (.csv)</label>
+                        <InputFile @key="inputFileKey" OnChange="ProcesarArchivoExcel" class="form-control form-control-sm" accept=".xlsx,.csv,.txt" disabled="@isImporting" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(MensajeModalImportar))
+                    {
+                        <div class="alert @(ModalImportarEsError ? "alert-danger" : "alert-success") small p-2 mb-3">
+                            <div class="d-flex align-items-start gap-2">
+                                <div style="white-space: pre-line;" class="w-100">
+                                    @MensajeModalImportar
+                                    @if (ErroresImportacion.Any())
+                                    {
+                                        <div class="mt-2 pt-2 border-top" style="max-height: 120px; overflow-y: auto;">
+                                            <ul class="mb-0 ps-3 small text-muted">
+                                                @foreach (var err in ErroresImportacion)
+                                                {
+                                                    <li>@err</li>
+                                                }
+                                            </ul>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (isImporting)
+                    {
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                            <span class="ms-2 small text-muted">Procesando y validando registros en SQL Server...</span>
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer border-top py-2">
+                    <button type="button" class="btn btn-sm btn-secondary px-3" disabled="@isImporting" @onclick="CerrarModalImportar">
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ========================================================================= -->
+<!-- MODAL 6: CONFIRMAR O IMPEDIR ELIMINACIÓN DE PRODUCTO                      -->
+<!-- ========================================================================= -->
+@if (MostrarModalEliminar)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.55);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-3">
+                <div class="modal-header border-bottom py-3 @(ProductoTieneVentas ? "bg-danger bg-opacity-10 text-danger" : "bg-light")">
+                    <div class="d-flex align-items-center gap-2">
+                        <h6 class="modal-title fw-bold mb-0">
+                            @(ProductoTieneVentas ? "Eliminación Restringida por Historial" : "Confirmar Eliminación")
+                        </h6>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="() => MostrarModalEliminar = false"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    @if (ProductoTieneVentas)
+                    {
+                        <div class="alert alert-danger border-danger small mb-3">
+                            <strong>No es posible eliminar este artículo:</strong>
+                            <div class="mt-1">
+                                El producto <strong>@ProductoAEliminar?.Nombre</strong> (SKU: @ProductoAEliminar?.Codigo) está vinculado a comprobantes y facturas emitidas anteriormente en el historial de ventas.
+                            </div>
+                            <div class="mt-2 text-muted">
+                                Por integridad tributaria y contable, los artículos con ventas no deben borrarse. En su lugar, puede desactivarlo para que no aparezca en el punto de venta.
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-dark small mb-3">
+                            ¿Está seguro de que desea eliminar permanentemente el producto:
+                            <div class="p-2 border rounded bg-light mt-2">
+                                <strong>@ProductoAEliminar?.Nombre</strong><br/>
+                                <span class="text-muted font-monospace">Código: @ProductoAEliminar?.Codigo</span>
+                            </div>
+                        </div>
+                        <div class="small text-danger">
+                            Esta acción eliminará el producto del catálogo físico de SQL Server y no se podrá deshacer.
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer border-top py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => MostrarModalEliminar = false">
+                        Cancelar
+                    </button>
+                    @if (ProductoTieneVentas)
+                    {
+                        <button type="button" class="btn btn-sm btn-warning text-white fw-semibold"
+                                @onclick="DesactivarEnLugarDeEliminar">
+                            Desactivar Artículo
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-sm btn-danger fw-semibold"
+                                @onclick="EjecutarEliminacionFisica" disabled="@isDeletingProducto">
+                            <span>@(isDeletingProducto ? "Eliminando..." : "Eliminar Definitivamente")</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string VistaActual = "productos"; // "productos" o "categorias"
+    private List<Producto> ListaProductos = new();
+    private List<Producto> ProductosFiltrados = new();
+    private List<CategoriaDto> ListaCategorias = new();
+    private List<CategoriaDto> CategoriasFiltradas = new();
+    private List<Categoria> CategoriasParaCombo = new();
+
+    private string TerminoBusqueda = "";
+    private string TerminoBusquedaCategoria = "";
+    private bool isLoadingProductos = true;
+    private bool isLoadingCategorias = false;
+    private bool isExporting = false;
+    private bool isImporting = false;
+
+    private string? MensajeFeedback = null;
+    private bool FeedbackEsExito = true;
+    private string? UltimaRutaDescargada = null;
+
+    // Modales
+    private bool MostrarModalProducto = false;
+    private Producto ProductoEditando = new();
+    private bool isSavingProducto = false;
+    private bool isUploadingImagenProducto = false;
+    private string? PreviewImagenProductoData = null;
+
+    private bool MostrarModalAjuste = false;
+    private Producto? ProductoAjustando;
+    private decimal NuevoStockAjuste = 0m;
+    private string MotivoAjuste = "";
+    private string SupervisorUsuario = "";
+    private string SupervisorClave = "";
+    private bool isExecutingAjuste = false;
+
+    private bool MostrarModalMateriales = false;
+    private Producto? ProductoMaterialPadre;
+    private List<ProductoMaterial> MaterialesActuales = new();
+    private int IdInsumoSeleccionado = 0;
+    private decimal CantidadMaterial = 1.00m;
+
+    private bool MostrarModalCategoria = false;
+    private Categoria CategoriaEditando = new();
+    private bool isSavingCategoria = false;
+    private bool isUploadingImagenCategoria = false;
+    private string? PreviewImagenCategoriaData = null;
+
+    private bool MostrarModalImportar = false;
+    private int inputFileKey = 1;
+    private string? MensajeModalImportar = null;
+    private bool ModalImportarEsError = false;
+    private string? RutaPlantillaDescargada = null;
+    private List<string> ErroresImportacion = new();
+
+    private bool MostrarModalEliminar = false;
+    private Producto? ProductoAEliminar;
+    private bool ProductoTieneVentas = false;
+    private bool isDeletingProducto = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatosIniciales();
+    }
+
+    private async Task CargarDatosIniciales()
+    {
+        isLoadingProductos = true;
+        try
+        {
+            try
+            {
+                CategoriasParaCombo = await CategoryService.GetAllAsync() ?? new List<Categoria>();
+            }
+            catch (Exception exCat)
+            {
+                CategoriasParaCombo = new List<Categoria>();
+                MensajeFeedback = $"Aviso: No se pudieron cargar categorías ({exCat.Message})";
+                FeedbackEsExito = false;
+            }
+
+            await CargarProductos();
+        }
+        catch (Exception ex)
+        {
+            MensajeFeedback = $"Error al cargar catálogo de productos: {ex.Message}";
+            FeedbackEsExito = false;
+        }
+        finally
+        {
+            isLoadingProductos = false;
+        }
+    }
+
+    private async Task CargarProductos()
+    {
+        try
+        {
+            ListaProductos = await ProductService.GetAllAsync() ?? new List<Producto>();
+            FiltrarProductos();
+        }
+        catch (Exception ex)
+        {
+            ListaProductos = new List<Producto>();
+            ProductosFiltrados = new List<Producto>();
+            MensajeFeedback = $"Error al consultar inventario desde la base de datos: {ex.Message}";
+            FeedbackEsExito = false;
+        }
+    }
+
+    private void FiltrarProductos()
+    {
+        if (ListaProductos == null)
+        {
+            ProductosFiltrados = new List<Producto>();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(TerminoBusqueda))
+        {
+            ProductosFiltrados = ListaProductos.ToList();
+        }
+        else
+        {
+            string t = TerminoBusqueda.Trim().ToLower();
+            ProductosFiltrados = ListaProductos
+                .Where(p => (!string.IsNullOrEmpty(p.Nombre) && p.Nombre.ToLower().Contains(t)) 
+                         || (!string.IsNullOrEmpty(p.Codigo) && p.Codigo.ToLower().Contains(t)) 
+                         || (p.Categoria != null && !string.IsNullOrEmpty(p.Categoria.Nombre) && p.Categoria.Nombre.ToLower().Contains(t)))
+                .ToList();
+        }
+    }
+
+    private void LimpiarBusqueda()
+    {
+        TerminoBusqueda = "";
+        FiltrarProductos();
+    }
+
+    private async Task CambiarVista(string vista)
+    {
+        VistaActual = vista;
+        MensajeFeedback = null;
+        if (VistaActual == "categorias")
+        {
+            await CargarCategorias();
+        }
+        else
+        {
+            await CargarProductos();
+        }
+    }
+
+    private async Task CargarCategorias()
+    {
+        isLoadingCategorias = true;
+        try
+        {
+            ListaCategorias = await CategoryService.GetAllWithCountAsync() ?? new List<CategoriaDto>();
+            FiltrarCategorias();
+        }
+        catch (Exception ex)
+        {
+            ListaCategorias = new List<CategoriaDto>();
+            CategoriasFiltradas = new List<CategoriaDto>();
+            MensajeFeedback = $"Error al consultar categorías: {ex.Message}";
+            FeedbackEsExito = false;
+        }
+        finally
+        {
+            isLoadingCategorias = false;
+        }
+    }
+
+    private void FiltrarCategorias()
+    {
+        if (ListaCategorias == null)
+        {
+            CategoriasFiltradas = new List<CategoriaDto>();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(TerminoBusquedaCategoria))
+        {
+            CategoriasFiltradas = ListaCategorias.ToList();
+        }
+        else
+        {
+            string t = TerminoBusquedaCategoria.Trim().ToLower();
+            CategoriasFiltradas = ListaCategorias
+                .Where(c => (!string.IsNullOrEmpty(c.Nombre) && c.Nombre.ToLower().Contains(t)) 
+                         || (!string.IsNullOrEmpty(c.Descripcion) && c.Descripcion.ToLower().Contains(t)))
+                .ToList();
+        }
+    }
+
+    // ==========================================
+    // ACCIONES DE PRODUCTOS
+    // ==========================================
+    private void AbrirModalNuevoProducto()
+    {
+        ProductoEditando = new Producto
+        {
+            Codigo = "",
+            Nombre = "",
+            IdCategoria = CategoriasParaCombo.FirstOrDefault()?.IdCategoria ?? 0,
+            StockMinimo = 5,
+            Stock = 0,
+            PrecioCompra = 0.00m,
+            PrecioVenta = 0.00m,
+            PrecioGranel = null,
+            CostoGranel = null,
+            CantidadPorEmpaque = 1.00m,
+            EsGranel = false,
+            UnidadMedida = "Unidad",
+            MargenExcepcion = 0.00m
+        };
+        PreviewImagenProductoData = null;
+        MostrarModalProducto = true;
+    }
+
+    private void AbrirModalEditar(Producto p)
+    {
+        ProductoEditando = new Producto
+        {
+            IdProducto = p.IdProducto,
+            IdCategoria = p.IdCategoria,
+            Codigo = p.Codigo,
+            Nombre = p.Nombre,
+            Descripcion = p.Descripcion,
+            PrecioCompra = p.PrecioCompra,
+            PrecioVenta = p.PrecioVenta,
+            PrecioGranel = p.PrecioGranel,
+            CostoGranel = p.CostoGranel,
+            CantidadPorEmpaque = p.CantidadPorEmpaque ?? 1.00m,
+            EsGranel = p.EsGranel || (p.PrecioGranel.HasValue && p.PrecioGranel.Value > 0),
+            UnidadMedida = string.IsNullOrWhiteSpace(p.UnidadMedida) ? "Unidad" : p.UnidadMedida,
+            Stock = p.Stock,
+            StockMinimo = p.StockMinimo,
+            MargenExcepcion = p.MargenExcepcion,
+            Imagen = p.Imagen,
+            ImagenUrl = p.ImagenUrl,
+            Estado = p.Estado
+        };
+        PreviewImagenProductoData = p.ImagenUrl;
+        MostrarModalProducto = true;
+    }
+
+    private decimal CalcularMargenUnitario()
+    {
+        if (ProductoEditando == null || ProductoEditando.PrecioCompra <= 0) return 0m;
+        return Math.Round(((ProductoEditando.PrecioVenta - ProductoEditando.PrecioCompra) / ProductoEditando.PrecioCompra) * 100m, 1);
+    }
+
+    private decimal ObtenerCostoGranelEfectivo()
+    {
+        if (ProductoEditando == null) return 0m;
+        if (ProductoEditando.CostoGranel.HasValue && ProductoEditando.CostoGranel.Value > 0)
+            return ProductoEditando.CostoGranel.Value;
+        if (ProductoEditando.CantidadPorEmpaque.HasValue && ProductoEditando.CantidadPorEmpaque.Value > 0 && ProductoEditando.PrecioCompra > 0)
+            return Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CantidadPorEmpaque.Value, 4);
+        return ProductoEditando.PrecioCompra;
+    }
+
+    private decimal CalcularMargenGranel()
+    {
+        if (ProductoEditando == null || !ProductoEditando.PrecioGranel.HasValue || ProductoEditando.PrecioGranel.Value <= 0) return 0m;
+        decimal costoG = ObtenerCostoGranelEfectivo();
+        if (costoG <= 0) return 0m;
+        return Math.Round(((ProductoEditando.PrecioGranel.Value - costoG) / costoG) * 100m, 1);
+    }
+
+    private decimal CalcularGananciaGranel()
+    {
+        if (ProductoEditando == null || !ProductoEditando.PrecioGranel.HasValue) return 0m;
+        decimal costoG = ObtenerCostoGranelEfectivo();
+        return ProductoEditando.PrecioGranel.Value - costoG;
+    }
+
+    private void OnPrecioCompraChanged()
+    {
+        if (ProductoEditando != null && ProductoEditando.PrecioCompra > 0 && ProductoEditando.CantidadPorEmpaque.HasValue && ProductoEditando.CantidadPorEmpaque.Value > 1)
+        {
+            ProductoEditando.CostoGranel = Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CantidadPorEmpaque.Value, 4);
+            StateHasChanged();
+        }
+    }
+
+    private void OnCantidadPorEmpaqueChanged()
+    {
+        if (ProductoEditando != null && ProductoEditando.PrecioCompra > 0 && ProductoEditando.CantidadPorEmpaque.HasValue && ProductoEditando.CantidadPorEmpaque.Value > 0)
+        {
+            ProductoEditando.CostoGranel = Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CantidadPorEmpaque.Value, 4);
+            StateHasChanged();
+        }
+    }
+
+    private void OnCostoGranelChanged()
+    {
+        if (ProductoEditando != null && ProductoEditando.PrecioCompra > 0 && ProductoEditando.CostoGranel.HasValue && ProductoEditando.CostoGranel.Value > 0)
+        {
+            decimal cantCalc = Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CostoGranel.Value, 2);
+            if (cantCalc > 0 && (!ProductoEditando.CantidadPorEmpaque.HasValue || ProductoEditando.CantidadPorEmpaque.Value <= 1))
+            {
+                ProductoEditando.CantidadPorEmpaque = cantCalc;
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void CerrarModalProducto()
+    {
+        MostrarModalProducto = false;
+    }
+
+    private void GenerarCodigoBarrasAleatorio()
+    {
+        try
+        {
+            ProductoEditando.Codigo = ProductService.GenerateRandomBarcode();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            MostrarFeedback($"Error generando código de barras: {ex.Message}", false);
+        }
+    }
+
+    private async Task SubirImagenProducto(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        isUploadingImagenProducto = true;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            string relativePath = await ProductService.GuardarImagenProductoAsync(stream, file.Name);
+            ProductoEditando.ImagenUrl = relativePath;
+            PreviewImagenProductoData = relativePath;
+        }
+        catch (Exception ex)
+        {
+            MostrarFeedback($"Error al cargar la imagen del producto: {ex.Message}", false);
+        }
+        finally
+        {
+            isUploadingImagenProducto = false;
+        }
+    }
+
+    private void ActualizarPreviewUrlProducto()
+    {
+        PreviewImagenProductoData = ProductoEditando.ImagenUrl;
+    }
+
+    private void QuitarImagenProducto()
+    {
+        ProductoEditando.ImagenUrl = null;
+        PreviewImagenProductoData = null;
+    }
+
+    private async Task GuardarProducto()
+    {
+        if (string.IsNullOrWhiteSpace(ProductoEditando.Codigo))
+        {
+            MostrarFeedback("El código o SKU del producto es obligatorio.", false);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(ProductoEditando.Nombre))
+        {
+            MostrarFeedback("El nombre del producto es obligatorio.", false);
+            return;
+        }
+        if (ProductoEditando.IdCategoria <= 0)
+        {
+            MostrarFeedback("Debe seleccionar una categoría para el producto.", false);
+            return;
+        }
+        if (ProductoEditando.EsGranel && (!ProductoEditando.PrecioGranel.HasValue || ProductoEditando.PrecioGranel.Value <= 0))
+        {
+            MostrarFeedback("Ha activado la venta a granel / caja. Debe ingresar el Precio Granel / Caja ($) para esta presentación.", false);
+            return;
+        }
+
+        isSavingProducto = true;
+        try
+        {
+            var res = await ProductService.SaveAsync(ProductoEditando);
+            if (res.Success)
+            {
+                MostrarModalProducto = false;
+                MostrarFeedback(res.Message, true);
+                await CargarProductos();
+            }
+            else
+            {
+                MostrarFeedback(res.Message, false);
+            }
+        }
+        finally
+        {
+            isSavingProducto = false;
+        }
+    }
+
+    private async Task ToggleEstadoProducto(Producto p)
+    {
+        var res = await ProductService.ToggleEstadoAsync(p.IdProducto);
+        MostrarFeedback(res.Message, res.Success);
+        if (res.Success)
+        {
+            p.Estado = !p.Estado;
+        }
+    }
+
+    private async Task SolicitarEliminarProducto(Producto p)
+    {
+        ProductoAEliminar = p;
+        var check = await ProductService.PuedeEliminarProductoAsync(p.IdProducto);
+        ProductoTieneVentas = !check.CanDelete;
+        MostrarModalEliminar = true;
+    }
+
+    private async Task DesactivarEnLugarDeEliminar()
+    {
+        if (ProductoAEliminar != null)
+        {
+            MostrarModalEliminar = false;
+            await ToggleEstadoProducto(ProductoAEliminar);
+        }
+    }
+
+    private async Task EjecutarEliminacionFisica()
+    {
+        if (ProductoAEliminar == null) return;
+        isDeletingProducto = true;
+        try
+        {
+            var res = await ProductService.DeleteAsync(ProductoAEliminar.IdProducto);
+            MostrarModalEliminar = false;
+            MostrarFeedback(res.Message, res.Success);
+            if (res.Success)
+            {
+                await CargarProductos();
+            }
+        }
+        finally
+        {
+            isDeletingProducto = false;
+        }
+    }
+
+    // ==========================================
+    // AJUSTE DE STOCK BAJO SUPERVISIÓN
+    // ==========================================
+    private void AbrirModalAjusteStock(Producto p)
+    {
+        ProductoAjustando = p;
+        NuevoStockAjuste = p.Stock;
+        MotivoAjuste = "";
+        SupervisorUsuario = AuthService.CurrentUser?.NombreUsuario ?? "";
+        SupervisorClave = "";
+        MostrarModalAjuste = true;
+    }
+
+    private async Task EjecutarAjusteStock()
+    {
+        if (ProductoAjustando == null) return;
+        if (string.IsNullOrWhiteSpace(SupervisorUsuario) || string.IsNullOrWhiteSpace(SupervisorClave))
+        {
+            MostrarFeedback("Debe ingresar las credenciales de usuario y clave del Supervisor o Administrador.", false);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(MotivoAjuste))
+        {
+            MostrarFeedback("Debe seleccionar o detallar el motivo del ajuste de inventario.", false);
+            return;
+        }
+
+        isExecutingAjuste = true;
+        try
+        {
+            var res = await ProductService.AjustarStockSupervisadoAsync(
+                ProductoAjustando.IdProducto,
+                NuevoStockAjuste,
+                MotivoAjuste,
+                SupervisorUsuario,
+                SupervisorClave
+            );
+
+            if (res.Success)
+            {
+                MostrarModalAjuste = false;
+                MostrarFeedback(res.Message, true);
+                await CargarProductos();
+            }
+            else
+            {
+                MostrarFeedback(res.Message, false);
+            }
+        }
+        finally
+        {
+            isExecutingAjuste = false;
+        }
+    }
+
+    // ==========================================
+    // GESTIÓN DE MATERIALES (BOM)
+    // ==========================================
+    private async Task AbrirModalMateriales(Producto p)
+    {
+        ProductoMaterialPadre = p;
+        IdInsumoSeleccionado = 0;
+        CantidadMaterial = 1.00m;
+        MaterialesActuales = await ProductService.GetMaterialesAsync(p.IdProducto);
+        MostrarModalMateriales = true;
+    }
+
+    private async Task AgregarMaterial()
+    {
+        if (ProductoMaterialPadre == null || IdInsumoSeleccionado <= 0 || CantidadMaterial <= 0) return;
+
+        var res = await ProductService.AgregarMaterialAsync(ProductoMaterialPadre.IdProducto, IdInsumoSeleccionado, CantidadMaterial);
+        if (res.Success)
+        {
+            MaterialesActuales = await ProductService.GetMaterialesAsync(ProductoMaterialPadre.IdProducto);
+            IdInsumoSeleccionado = 0;
+            CantidadMaterial = 1.00m;
+        }
+        else
+        {
+            MostrarFeedback(res.Message, false);
+        }
+    }
+
+    private async Task EliminarMaterial(int idProductoMaterial)
+    {
+        if (ProductoMaterialPadre == null) return;
+        var res = await ProductService.EliminarMaterialAsync(idProductoMaterial);
+        if (res.Success)
+        {
+            MaterialesActuales = await ProductService.GetMaterialesAsync(ProductoMaterialPadre.IdProducto);
+        }
+        else
+        {
+            MostrarFeedback(res.Message, false);
+        }
+    }
+
+    // ==========================================
+    // ACCIONES DE CATEGORÍAS
+    // ==========================================
+    private void AbrirModalNuevaCategoria()
+    {
+        CategoriaEditando = new Categoria
+        {
+            Nombre = "",
+            Descripcion = "",
+            Icono = "fa-box"
+        };
+        PreviewImagenCategoriaData = null;
+        MostrarModalCategoria = true;
+    }
+
+    private void AbrirModalEditarCategoria(CategoriaDto c)
+    {
+        CategoriaEditando = new Categoria
+        {
+            IdCategoria = c.IdCategoria,
+            Nombre = c.Nombre,
+            Descripcion = c.Descripcion,
+            Icono = c.Icono,
+            ImagenUrl = c.ImagenUrl
+        };
+        PreviewImagenCategoriaData = c.ImagenUrl;
+        MostrarModalCategoria = true;
+    }
+
+    private async Task SubirImagenCategoria(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        isUploadingImagenCategoria = true;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            string relativePath = await CategoryService.GuardarImagenCategoriaAsync(stream, file.Name);
+            CategoriaEditando.ImagenUrl = relativePath;
+            PreviewImagenCategoriaData = relativePath;
+        }
+        catch (Exception ex)
+        {
+            MostrarFeedback($"Error al cargar la imagen de la categoría: {ex.Message}", false);
+        }
+        finally
+        {
+            isUploadingImagenCategoria = false;
+        }
+    }
+
+    private void ActualizarPreviewUrlCategoria()
+    {
+        PreviewImagenCategoriaData = CategoriaEditando.ImagenUrl;
+    }
+
+    private void QuitarImagenCategoria()
+    {
+        CategoriaEditando.ImagenUrl = null;
+        PreviewImagenCategoriaData = null;
+    }
+
+    private async Task GuardarCategoria()
+    {
+        if (string.IsNullOrWhiteSpace(CategoriaEditando.Nombre))
+        {
+            MostrarFeedback("El nombre de la categoría es requerido.", false);
+            return;
+        }
+
+        isSavingCategoria = true;
+        try
+        {
+            var res = await CategoryService.SaveAsync(CategoriaEditando);
+            if (res.Success)
+            {
+                MostrarModalCategoria = false;
+                MostrarFeedback(res.Message, true);
+                CategoriasParaCombo = await CategoryService.GetAllAsync();
+                if (VistaActual == "categorias")
+                {
+                    await CargarCategorias();
+                }
+            }
+            else
+            {
+                MostrarFeedback(res.Message, false);
+            }
+        }
+        finally
+        {
+            isSavingCategoria = false;
+        }
+    }
+
+    private async Task EliminarCategoria(CategoriaDto c)
+    {
+        var res = await CategoryService.DeleteAsync(c.IdCategoria);
+        MostrarFeedback(res.Message, res.Success);
+        if (res.Success)
+        {
+            await CargarCategorias();
+            CategoriasParaCombo = await CategoryService.GetAllAsync();
+        }
+    }
+
+    // ==========================================
+    // EXPORTACIÓN & IMPORTACIÓN EXCEL
+    // ==========================================
+    private async Task ExportarExcel()
+    {
+        isExporting = true;
+        MensajeFeedback = null;
+        try
+        {
+            var res = await ExcelExportService.ExportarInventarioCompletoAsync();
+            FeedbackEsExito = res.Exitoso;
+            MensajeFeedback = res.Mensaje;
+            UltimaRutaDescargada = res.RutaArchivoLocal;
+
+            if (res.Exitoso && res.ContenidoBytes.Length > 0)
+            {
+                await JS.InvokeVoidAsync("downloadFileFromBase64", res.NombreArchivo, res.Base64Data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            }
+        }
+        catch (Exception ex)
+        {
+            MostrarFeedback($"Error al exportar inventario: {ex.Message}", false);
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+
+    private void AbrirModalImportar()
+    {
+        MensajeModalImportar = null;
+        ModalImportarEsError = false;
+        RutaPlantillaDescargada = null;
+        ErroresImportacion.Clear();
+        inputFileKey++;
+        MostrarModalImportar = true;
+    }
+
+    private void CerrarModalImportar()
+    {
+        if (isImporting) return;
+        MostrarModalImportar = false;
+        MensajeModalImportar = null;
+        ModalImportarEsError = false;
+        RutaPlantillaDescargada = null;
+        ErroresImportacion.Clear();
+        inputFileKey++;
+    }
+
+    private async Task DescargarPlantillaExcel()
+    {
+        try
+        {
+            var res = ExcelExportService.DescargarPlantillaImportacion();
+            if (res.Exitoso)
+            {
+                RutaPlantillaDescargada = res.RutaArchivoLocal;
+                MensajeModalImportar = "Plantilla generada con éxito y guardada en su carpeta de Descargas.";
+                ModalImportarEsError = false;
+
+                // También intentar descarga JS en entorno de navegador web si aplica
+                if (!string.IsNullOrEmpty(res.Base64Data))
+                {
+                    try
+                    {
+                        await JS.InvokeVoidAsync("downloadFileFromBase64", "Plantilla_Inventario_CoreasERP.xlsx", res.Base64Data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+                    }
+                    catch
+                    {
+                        // Fallback ignorado en desktop nativo
+                    }
+                }
+            }
+            else
+            {
+                MensajeModalImportar = res.Mensaje;
+                ModalImportarEsError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            MensajeModalImportar = $"Error al descargar plantilla: {ex.Message}";
+            ModalImportarEsError = true;
+        }
+    }
+
+    private async Task ProcesarArchivoExcel(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        isImporting = true;
+        MensajeModalImportar = null;
+        ErroresImportacion.Clear();
+        StateHasChanged();
+
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 25 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            var res = await ExcelExportService.ImportarInventarioExcelAsync(ms);
+            MensajeModalImportar = res.Mensaje;
+            ModalImportarEsError = !res.Exitoso;
+            ErroresImportacion = res.Errores ?? new List<string>();
+
+            if (res.Exitoso)
+            {
+                MostrarFeedback(res.Mensaje, true);
+                await CargarProductos();
+                CategoriasParaCombo = await CategoryService.GetAllAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            MensajeModalImportar = $"Error al procesar el archivo: {ex.Message}";
+            ModalImportarEsError = true;
+        }
+        finally
+        {
+            isImporting = false;
+            inputFileKey++; // Restablece el InputFile para permitir nuevas cargas sin reiniciar
+            StateHasChanged();
+        }
+    }
+
+    private void MostrarFeedback(string mensaje, bool exito)
+    {
+        MensajeFeedback = mensaje;
+        FeedbackEsExito = exito;
+    }
+}

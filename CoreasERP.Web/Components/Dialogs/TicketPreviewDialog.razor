@@ -1,0 +1,344 @@
+@inject IPrintService PrintService
+@inject IJSRuntime JSRuntime
+@inject IQrCodeService QrCodeService
+@inject IDbContextFactory<AppDbContext> ContextFactory
+@using CoreasERP.Data
+@using Microsoft.EntityFrameworkCore
+
+@if (IsOpen && Venta != null)
+{
+    <div class="modal-backdrop-custom" tabindex="-1" @onkeydown="HandleKeyDown" @onclick="Close">
+        <div class="modal-content-custom" @onclick:stopPropagation="true" style="max-width: 440px;">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    <h6 class="mb-0 fw-bold">Ticket Térmico (@(configNegocio?.AnchoPapelMm ?? 58)mm)</h6>
+                    <span class="badge bg-white text-secondary border font-monospace ms-1" style="font-size: 10px;" title="Impresora de destino">
+                        @(string.IsNullOrWhiteSpace(configNegocio?.NombreImpresora) ? "Predeterminada" : configNegocio.NombreImpresora)
+                    </span>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close" title="Cerrar y volver al POS [Esc]"></button>
+            </div>
+
+            <div class="p-3 bg-secondary bg-opacity-10 text-center" style="max-height: 70vh; overflow-y: auto;">
+                <!-- Contenedor del Ticket Térmico -->
+                <div id="thermal-receipt" class="bg-white p-3 mx-auto shadow-sm text-start" style="width: @(configNegocio?.AnchoPapelMm == 80 ? "320px" : "250px"); font-family: 'Courier New', Courier, monospace; font-size: 12px; color: #000; border: 1px dashed #cbd5e1;">
+                    <div class="text-center mb-2 pb-2" style="border-bottom: 1px dashed #000;">
+                        <div class="fw-bold fs-6">@(configNegocio?.NombreNegocio ?? "COREAS ERP")</div>
+                        @if (!string.IsNullOrEmpty(configNegocio?.Propietario))
+                        {
+                            <div class="small fw-semibold">@configNegocio.Propietario</div>
+                        }
+                        @if (!string.IsNullOrEmpty(configNegocio?.Nit) || !string.IsNullOrEmpty(configNegocio?.Nrc))
+                        {
+                            <div class="small">
+                                @if (!string.IsNullOrEmpty(configNegocio.Nit)) { <span>NIT: @configNegocio.Nit </span> }
+                                @if (!string.IsNullOrEmpty(configNegocio.Nrc)) { <span>NRC: @configNegocio.Nrc</span> }
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(configNegocio?.Direccion))
+                        {
+                            <div class="small">@configNegocio.Direccion</div>
+                        }
+                        @if (!string.IsNullOrEmpty(configNegocio?.Telefono))
+                        {
+                            <div class="small">Tel: @configNegocio.Telefono</div>
+                        }
+                        @if (!string.IsNullOrEmpty(configNegocio?.Email))
+                        {
+                            <div class="small">@configNegocio.Email</div>
+                        }
+                    </div>
+
+                    <div class="mb-2 small" style="line-height: 1.3;">
+                        <div><strong>COMPROB:</strong> @Venta.NumComprobante</div>
+                        <div><strong>TIPO:</strong> @Venta.TipoComprobante.ToUpper()</div>
+                        <div><strong>FECHA:</strong> @Venta.FechaHora.ToString("dd/MM/yyyy hh:mm tt", System.Globalization.CultureInfo.InvariantCulture)</div>
+                        <div><strong>CAJERO:</strong> @(Venta.Usuario?.Nombre ?? "Cajero de Turno")</div>
+                        <div><strong>CLIENTE:</strong> @(Venta.Cliente?.Nombre ?? "Consumidor Final")</div>
+                        @if (!string.IsNullOrEmpty(Venta.Cliente?.NumDocumento))
+                        {
+                            <div><strong>DOC:</strong> @Venta.Cliente.NumDocumento</div>
+                        }
+                    </div>
+
+                    <div class="mb-2" style="font-size: 11px;">
+                        <div class="d-flex justify-content-between fw-bold pb-1" style="border-bottom: 1px dashed #000;">
+                            <span>DESCRIPCIÓN</span>
+                            <span>TOTAL</span>
+                        </div>
+                        @foreach (var item in Venta.DetalleVentas)
+                        {
+                            <div class="pt-1">
+                                <div class="fw-semibold text-break">@(item.Producto?.Nombre ?? "Producto")</div>
+                                <div class="d-flex justify-content-between text-muted">
+                                    <span>&nbsp;&nbsp;@item.Cantidad.ToString("G29") x $@item.Precio.ToString("F2")</span>
+                                    <span class="text-dark fw-bold">$@item.Subtotal.ToString("F2")</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div style="border-top: 1px dashed #000; padding-top: 4px; font-size: 11px; margin-bottom: 8px;">
+                        <div class="d-flex justify-content-between">
+                            <span>SUBTOTAL:</span>
+                            <span>$@Venta.Subtotal.ToString("F2")</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>IVA (13%):</span>
+                            <span>$@Venta.Impuesto.ToString("F2")</span>
+                        </div>
+                        <div class="d-flex justify-content-between fw-bold fs-6 mt-1 pt-1" style="border-top: 1px solid #000;">
+                            <span>TOTAL A PAGAR:</span>
+                            <span>$@Venta.Total.ToString("F2")</span>
+                        </div>
+                    </div>
+
+                    @if (Venta.TipoComprobante.Equals("Anticipo", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var anticipoPagado = Math.Min(Venta.PagoCon ?? 0m, Venta.Total);
+                        var saldoPendiente = Math.Max(0m, Venta.Total - anticipoPagado);
+                        <div style="font-size: 11px; border-top: 1px dashed #000; padding-top: 4px; margin-bottom: 8px;">
+                            <div class="d-flex justify-content-between">
+                                <span>MÉTODO:</span>
+                                <span>@Venta.MetodoPago</span>
+                            </div>
+                            <div class="d-flex justify-content-between fw-bold">
+                                <span>ANTICIPO ABONADO:</span>
+                                <span>$@anticipoPagado.ToString("F2")</span>
+                            </div>
+                            <div class="d-flex justify-content-between fw-bold">
+                                <span>SALDO PENDIENTE (CXC):</span>
+                                <span>$@saldoPendiente.ToString("F2")</span>
+                            </div>
+                            @if ((Venta.PagoCon ?? 0m) > Venta.Total)
+                            {
+                                <div class="d-flex justify-content-between fw-bold">
+                                    <span>SU CAMBIO:</span>
+                                    <span>$@(Venta.Cambio?.ToString("F2") ?? "0.00")</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="font-size: 11px; border-top: 1px dashed #000; padding-top: 4px; margin-bottom: 8px;">
+                            <div class="d-flex justify-content-between">
+                                <span>MÉTODO:</span>
+                                <span>@Venta.MetodoPago</span>
+                            </div>
+                            @if (Venta.MetodoPago == "Efectivo" && Venta.PagoCon.HasValue)
+                            {
+                                <div class="d-flex justify-content-between">
+                                    <span>PAGÓ CON:</span>
+                                    <span>$@Venta.PagoCon.Value.ToString("F2")</span>
+                                </div>
+                                <div class="d-flex justify-content-between fw-bold text-success">
+                                    <span>SU CAMBIO:</span>
+                                    <span>$@(Venta.Cambio?.ToString("F2") ?? "0.00")</span>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(Venta.CodigoGeneracion))
+                    {
+                        <div style="font-size: 10px; border-top: 1px dashed #000; padding-top: 4px; margin-bottom: 6px; word-break: break-all;">
+                            <div class="fw-bold text-center mb-1" style="font-size: 10.5px;">DOCUMENTO TRIBUTARIO ELECTRÓNICO</div>
+                            <div><strong>CÓD. GENERACIÓN:</strong></div>
+                            <div class="font-monospace" style="font-size: 9px;">@Venta.CodigoGeneracion</div>
+                            @if (!string.IsNullOrEmpty(Venta.NumeroControl))
+                            {
+                                <div class="mt-1"><strong>NUM. CONTROL:</strong></div>
+                                <div class="font-monospace" style="font-size: 9px;">@Venta.NumeroControl</div>
+                            }
+                            @if (!string.IsNullOrEmpty(Venta.SelloRecepcion))
+                            {
+                                <div class="mt-1"><strong>SELLO RECEPCIÓN MH:</strong></div>
+                                <div class="font-monospace" style="font-size: 8.5px;">@Venta.SelloRecepcion</div>
+                            }
+                            <div class="mt-1">
+                                <strong>ESTADO:</strong> 
+                                @(Venta.EstadoDte == "Transmitido" ? "TRANSMITIDO (MH)" : (Venta.EstadoDte == "Contingencia_Pendiente" ? "CONTINGENCIA (DIFERIDO)" : Venta.EstadoDte))
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(qrCodeBase64))
+                            {
+                                <div class="text-center my-2 pt-2" style="border-top: 1px dashed #000;">
+                                    <div class="fw-bold mb-1" style="font-size: 9px;">CONSULTA PÚBLICA DTE (MH)</div>
+                                    <img src="@qrCodeBase64" style="width: 125px; height: 125px; display: block; margin: 0 auto;" alt="Código QR Hacienda" />
+                                    <div class="mt-1" style="font-size: 8px; color: #475569;">Escanee con su celular para verificar en Hacienda</div>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="text-center small pt-2" style="border-top: 1px dashed #000; font-size: 11px;">
+                        <div>@(string.IsNullOrWhiteSpace(configNegocio?.MensajeTicket) ? "¡GRACIAS POR SU COMPRA! VUELVA PRONTO" : configNegocio.MensajeTicket)</div>
+                        <div class="text-muted mt-1" style="font-size: 9px;">Software: Coreas ERP Local@(string.IsNullOrEmpty(Venta.CodigoGeneracion) ? "" : " · FelSv DTE")</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pie de Botones: Imprimir y Retornar al POS al instante -->
+            <div class="p-3 border-top bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm px-3" @onclick="Close" title="Cerrar y volver al POS [Esc]">
+                        Volver al POS [Esc]
+                    </button>
+                    @if (OnVerCarta.HasDelegate && Venta != null)
+                    {
+                        <button type="button" class="btn btn-outline-primary btn-sm px-2 fw-semibold" @onclick="VerFormatoCarta" title="Ver documento en tamaño carta oficial o guardar como PDF">
+                            <small>Formato Carta (PDF)</small>
+                        </button>
+                    }
+                    <button type="button" class="btn btn-light btn-sm px-2 text-secondary border" @onclick="ImprimirConDialogo" title="Abrir diálogo de impresión de Windows o guardar PDF">
+                        <small>Diálogo Windows</small>
+                    </button>
+                </div>
+                <button @ref="btnImprimirRef" 
+                        type="button" 
+                        class="btn text-white btn-sm px-4 fw-bold d-flex align-items-center gap-2 shadow-sm" 
+                        style="background-color: #15803D; border-color: #15803D;"
+                        @onclick="Imprimir"
+                        disabled="@isPrinting"
+                        title="Imprimir directamente a la impresora térmica y volver al POS [Enter / F10]">
+                    @if (isPrinting)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                        <span>Imprimiendo...</span>
+                    }
+                    else
+                    {
+                        <span>Imprimir Ticket</span>
+                        <span class="badge bg-white" style="color: #15803D; font-size: 10px;">Enter / F10</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public Venta? Venta { get; set; }
+    [Parameter] public EventCallback<Venta> OnVerCarta { get; set; }
+    [Parameter] public EventCallback OnNuevaVenta { get; set; }
+
+    private ElementReference btnImprimirRef;
+    private ConfiguracionNegocio? configNegocio;
+    private string? qrCodeBase64;
+    private string? qrConsultaUrl;
+    private bool isPrinting;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && Venta != null)
+        {
+            try
+            {
+                await using var context = await ContextFactory.CreateDbContextAsync();
+                configNegocio = await context.ConfiguracionNegocio.FirstOrDefaultAsync();
+            }
+            catch { }
+
+            string ambiente = configNegocio?.FelSvAmbiente ?? "00";
+
+            if (!string.IsNullOrWhiteSpace(Venta.CodigoGeneracion))
+            {
+                qrConsultaUrl = QrCodeService.ObtenerUrlConsultaHacienda(Venta.CodigoGeneracion, Venta.FechaHora, ambiente);
+                qrCodeBase64 = QrCodeService.GenerarQrDteHacienda(Venta.CodigoGeneracion, Venta.FechaHora, ambiente, pixelsPerModule: 4);
+            }
+            else
+            {
+                qrConsultaUrl = null;
+                qrCodeBase64 = null;
+            }
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen)
+        {
+            try
+            {
+                await Task.Delay(50);
+                await btnImprimirRef.FocusAsync();
+            }
+            catch { }
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == "F10")
+        {
+            await Imprimir();
+        }
+        else if (e.Key == "Escape")
+        {
+            await Close();
+        }
+    }
+
+    public async Task Imprimir()
+    {
+        if (isPrinting) return;
+        isPrinting = true;
+
+        try
+        {
+            if (Venta != null && (configNegocio?.ImpresionDirecta ?? true))
+            {
+                var result = await PrintService.PrintReceiptDirectAsync(Venta, configNegocio);
+                if (result.Success)
+                {
+                    await Close();
+                    return;
+                }
+            }
+
+            await PrintService.PrintReceiptAsync(JSRuntime, "thermal-receipt");
+            await PrintService.OpenCashDrawerAsync(configNegocio);
+            await Close();
+        }
+        finally
+        {
+            isPrinting = false;
+        }
+    }
+
+    public async Task ImprimirConDialogo()
+    {
+        if (isPrinting) return;
+        isPrinting = true;
+        try
+        {
+            await PrintService.PrintReceiptAsync(JSRuntime, "thermal-receipt");
+            await Close();
+        }
+        finally
+        {
+            isPrinting = false;
+        }
+    }
+
+    private async Task VerFormatoCarta()
+    {
+        if (Venta != null && OnVerCarta.HasDelegate)
+        {
+            IsOpen = false;
+            await IsOpenChanged.InvokeAsync(false);
+            await OnVerCarta.InvokeAsync(Venta);
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+        await OnNuevaVenta.InvokeAsync();
+    }
+}

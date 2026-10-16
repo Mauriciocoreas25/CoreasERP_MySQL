@@ -1,0 +1,46 @@
+# Compilados y carpetas temporales de .NET / Visual Studio
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Ll]og/
+[Ll]ogs/
+
+# Archivos de usuario de Visual Studio / MAUI
+.vs/
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Carpetas de publicación e instaladores pesados
+Instalador/publish/
+Instalador/Release/
+Instalador/Debug/
+CoreasERP_Web_Publicacion/
+publish/
+
+# Binarios, instaladores, comprimidos y backups pesados (>100MB límite de GitHub)
+*.dll
+*.exe
+*.msi
+*.zip
+*.rar
+*.7z
+*.bak
+*.apk
+*.aab
+*.idsig
+*.pdb
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini

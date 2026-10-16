@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Coreas ERP - Sistema de Almacén & POS</title>
+    <base href="/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="CoreasERP.Web.styles.css" />
+    <link rel="icon" href="data:,">
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+
+    <!-- Manejo de circuito seguro: errores de página se gestionan internamente en ErrorBoundary -->
+    <div id="blazor-error-ui" style="display: none !important; visibility: hidden !important;"></div>
+
+    <script src="js/coreas-shortcuts.js"></script>
+    <script src="js/coreas-print.js"></script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+
+</html>

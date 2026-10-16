@@ -1,0 +1,1958 @@
+@page "/pos"
+@implements IDisposable
+@inject IProductService ProductService
+@inject ICategoryService CategoryService
+@inject ICustomerService CustomerService
+@inject IPosService PosService
+@inject ICashRegisterService CashRegisterService
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject IFelSvApiService FelSvApiService
+@inject ISettingsService SettingsService
+@inject IPrintService PrintService
+
+<div class="pos-fullscreen-wrapper">
+    <!-- 1. Cabecera de 9 Pestañas de Comprobantes (F1 a F9) -->
+    <header class="pos-vouchers-bar">
+        @for (int i = 0; i < Vouchers.Length; i++)
+        {
+            int idx = i;
+            var v = Vouchers[idx];
+            bool isActive = (SelectedComprobanteIndex == idx);
+
+            <button type="button" 
+                    class="pos-voucher-btn @(isActive ? "active" : "")"
+                    @onclick="() => SeleccionarComprobante(idx)">
+                <span class="pos-voucher-kkey">@v.Tecla</span>
+                <span class="pos-voucher-label">@v.Nombre</span>
+            </button>
+        }
+    </header>
+
+    <!-- 2. Subcabecera: Selector de Cliente, Usuario y Botones de Salida -->
+    <div class="pos-subheader-bar">
+        <div class="d-flex align-items-center gap-2" style="max-width: 480px; width: 100%;">
+            <label class="small fw-bold text-secondary mb-0 text-nowrap">Cliente:</label>
+            <div class="input-group input-group-sm">
+                <select class="form-select fw-semibold" @bind="SelectedClienteId" style="font-size: 13px;">
+                    @foreach (var c in Clientes)
+                    {
+                        <option value="@c.IdCliente">
+                            @c.Nombre @(!string.IsNullOrWhiteSpace(c.NumDocumento) ? $"({c.NumDocumento})" : "(Mostrador)")
+                        </option>
+                    }
+                </select>
+                <button class="btn btn-outline-secondary fw-bold" type="button" title="Nuevo Cliente Rápido" @onclick="() => isQuickCustomerOpen = true">
+                    +
+                </button>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-3">
+            @if (isDteHabilitado)
+            {
+                @if (isContingencyActive)
+                {
+                    <button type="button" class="btn btn-sm btn-warning d-flex align-items-center gap-1 px-3 fw-bold shadow-sm"
+                            @onclick="AbrirContingencia" title="Contingencia MH Activa (Clic para gestionar)">
+                        <span class="spinner-grow spinner-grow-sm text-dark" style="width: 9px; height: 9px;"></span>
+                        <span>Contingencia MH</span>
+                    </button>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-sm btn-outline-success d-flex align-items-center gap-1 px-3 fw-semibold shadow-sm"
+                            @onclick="AbrirContingencia" title="Facturación Electrónica MH en Línea (Clic para contingencia)">
+                        <span class="badge rounded-circle p-1 bg-success me-1" style="width: 8px; height: 8px; display: inline-block;"></span>
+                        <span>DTE FelSv</span>
+                    </button>
+                }
+            }
+            else
+            {
+                <span class="badge bg-light text-secondary border px-2 py-1 fw-medium" title="Facturación Electrónica desactivada en Configuración. Las ventas se registran como comprobantes locales.">
+                    Modo Local (Sin DTE)
+                </span>
+            }
+
+            <div class="small fw-semibold text-secondary d-flex align-items-center gap-1">
+                <span class="badge rounded-circle p-1 bg-success me-1" style="width: 8px; height: 8px; display: inline-block;"></span>
+                <span>|</span>
+                <span class="text-dark">@(AuthService.CurrentUser?.Nombre ?? "Usuario")</span>
+            </div>
+
+            @if (CorteActivo != null)
+            {
+                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 fw-semibold d-none d-md-inline-block" style="font-size: 11px;" title="Turno de caja abierto">
+                    ● Turno #@CorteActivo.IdCorte
+                </span>
+            }
+            else
+            {
+                <button type="button" class="btn btn-sm btn-warning text-dark fw-bold px-2 py-0 border shadow-sm d-flex align-items-center gap-1"
+                        style="font-size: 11px;" @onclick="() => AbrirModalAperturaTurno()">
+                    <span class="spinner-grow spinner-grow-sm text-dark" style="width: 7px; height: 7px;"></span>
+                    <span>Abrir Turno</span>
+                </button>
+            }
+
+            @if (!AuthService.IsCajero)
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1 px-3 fw-semibold shadow-sm"
+                        @onclick="IrAlPanelErp" title="Volver al Panel Principal del ERP">
+                    <span>Panel ERP</span>
+                </button>
+            }
+            <button type="button" class="btn btn-sm btn-danger d-flex align-items-center gap-1 px-3 fw-semibold shadow-sm"
+                    @onclick="CerrarSesion" title="Cerrar Sesión del Sistema">
+                <span>Salir</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 3. Contenedor Principal: Tabla de Artículos + Barra Lateral de Acciones -->
+    <div class="pos-body-grid">
+        <!-- Panel Izquierdo: Tabla de Artículos y Fila de Captura Activa -->
+        <div class="pos-table-container">
+            @if (CorteActivo == null)
+            {
+                <div class="alert alert-warning mb-0 py-2 px-3 rounded-0 border-0 border-bottom d-flex justify-content-between align-items-center" style="font-size: 13px; background-color: #fffbeb;">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-warning text-dark fw-bold">TURNO CERRADO</span>
+                        <span class="text-dark">No hay un turno de caja abierto. Debe abrir turno con su fondo de caja inicial para realizar ventas y cortes.</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-success fw-bold px-3 py-1 shadow-sm" style="font-size: 12px; background-color: #15803d; border-color: #15803d;" @onclick="() => AbrirModalAperturaTurno()">
+                        + Abrir Turno de Caja
+                    </button>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(PosErrorMessage))
+            {
+                <div class="alert alert-danger mb-0 py-2 px-3 rounded-0 border-0 border-bottom d-flex justify-content-between align-items-center" style="font-size: 13px;">
+                    <div class="d-flex align-items-center gap-2">
+                        <strong>Error:</strong> @PosErrorMessage
+                    </div>
+                    <button type="button" class="btn-close btn-close-sm" @onclick="() => PosErrorMessage = null"></button>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(PosWarningMessage))
+            {
+                <div class="alert alert-warning mb-0 py-2 px-3 rounded-0 border-0 border-bottom d-flex justify-content-between align-items-center" style="font-size: 13px;">
+                    <div class="d-flex align-items-center gap-2">
+                        <strong>Atención:</strong> @PosWarningMessage
+                    </div>
+                    <button type="button" class="btn-close btn-close-sm" @onclick="() => PosWarningMessage = null"></button>
+                </div>
+            }
+            <div class="pos-table-scroll">
+                <table class="pos-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 190px;">Código de Barras</th>
+                            <th>Descripción del Producto</th>
+                            <th class="text-center" style="width: 120px;">Cantidad</th>
+                            <th class="text-end" style="width: 140px;">Precio Unitario ($)</th>
+                            <th class="text-end" style="width: 140px;">Total ($)</th>
+                            <th class="text-center" style="width: 70px;">Quitar</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Mensaje de Carrito Vacío -->
+                        @if (!Carrito.Any() && ProductoEnEdicion == null)
+                        {
+                            <tr class="pos-row-empty">
+                                <td colspan="6" class="py-5 text-center text-muted">
+                                    <div class="fw-semibold mb-1">El carrito está vacío</div>
+                                    <div>Presione la <strong class="text-success">Barra Espaciadora</strong> para buscar productos.</div>
+                                </td>
+                            </tr>
+                        }
+
+                        <!-- Listado de Artículos ya en el Carrito -->
+                        @foreach (var item in Carrito)
+                        {
+                            <tr>
+                                <td class="font-monospace text-secondary fw-semibold">
+                                    @item.Codigo
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-1">
+                                        <div class="fw-bold text-dark text-truncate" style="max-width: 440px;" title="@item.Nombre">
+                                            @item.Nombre
+                                        </div>
+                                        @if (item.EsGranel)
+                                        {
+                                            <span class="badge bg-success bg-opacity-25 text-success border border-success px-1" style="font-size: 9.5px;">
+                                                @(item.UnidadMedida == "Libra" ? "lb" : (item.UnidadMedida == "Kilogramo" ? "kg" : (item.UnidadMedida == "Gramo" ? "g" : (item.UnidadMedida == "Caja" ? "CAJA" : (item.UnidadMedida == "Sobre" ? "SOBRE" : "GRANEL")))))
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary bg-opacity-10 text-secondary border px-1" style="font-size: 9px;">
+                                                UNIDAD
+                                            </span>
+                                        }
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    <div class="d-inline-flex align-items-center gap-1 border rounded px-1 bg-white">
+                                        <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none text-muted" 
+                                                style="font-size: 11px; width: 18px;" @onclick="() => ModificarCantidad(item, item.EsGranel ? -0.5m : -1m)">-</button>
+                                        <span class="fw-bold px-2 font-monospace" style="font-size: 13px;">@item.Cantidad.ToString("G29")</span>
+                                        <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none text-muted" 
+                                                style="font-size: 11px; width: 18px;" @onclick="() => ModificarCantidad(item, item.EsGranel ? 0.5m : 1m)">+</button>
+                                    </div>
+                                </td>
+                                <td class="text-end font-monospace text-secondary">
+                                    $@item.Precio.ToString("F2")
+                                </td>
+                                <td class="text-end font-monospace fw-bold text-dark">
+                                    $@item.Subtotal.ToString("F2")
+                                </td>
+                                <td class="text-center">
+                                    <button type="button" class="btn btn-sm btn-link text-danger p-0 border-0 fs-6" 
+                                            title="Quitar artículo" @onclick="() => EliminarDelCarrito(item)">
+                                        &times;
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+
+                        <!-- Fila de Captura Activa (Requerimiento Central) -->
+                        <tr class="pos-row-input">
+                            @if (ProductoEnEdicion == null)
+                            {
+                                <!-- Estado A: Esperando escaneo, digitación o barra espaciadora -->
+                                <td>
+                                    <input @ref="inputUpcRef"
+                                           type="text"
+                                           class="form-control form-control-sm pos-upc-input trigger-spacebar-search font-monospace"
+                                           placeholder="Escanear/Digitar UPC.."
+                                           @bind="UpcInputValue"
+                                           @bind:event="oninput"
+                                           @onkeydown="HandleUpcKeyDown" />
+                                </td>
+                                <td colspan="5">
+                                    <span class="text-muted small fst-italic ps-2" style="line-height: 31px;">
+                                        Escriba o escanee el código de barras y presione Enter (o barra espaciadora para buscar)
+                                    </span>
+                                </td>
+                            }
+                            else
+                            {
+                                <!-- Estado B: Producto llamado con Celdas Bloqueadas y Foco en Cantidad Vacía -->
+                                <td>
+                                    <input type="text" 
+                                           class="form-control form-control-sm bg-light font-monospace text-secondary" 
+                                           value="@ProductoEnEdicion.Codigo" 
+                                           readonly 
+                                           disabled 
+                                           style="cursor: not-allowed;" />
+                                </td>
+                                <td>
+                                    <div>
+                                        <input type="text" 
+                                               class="form-control form-control-sm bg-light fw-bold text-dark text-truncate" 
+                                               value="@ProductoEnEdicion.Nombre" 
+                                               readonly 
+                                               disabled 
+                                               style="cursor: not-allowed;" />
+                                    </div>
+                                    @if (ProductoEnEdicion.PrecioGranel.HasValue && ProductoEnEdicion.PrecioGranel.Value > 0)
+                                    {
+                                        <div class="d-flex align-items-center gap-1 mt-1">
+                                            <!-- Píldora Modo Unidad / Empaque -->
+                                            <button type="button" 
+                                                    class="btn btn-sm py-0 px-2 rounded-pill d-flex align-items-center gap-1 @(!EsModoGranelActivo ? "btn-primary fw-bold shadow-sm" : "btn-outline-secondary opacity-75")"
+                                                    style="font-size: 10px;"
+                                                    @onclick="() => SeleccionarModoPrecio(false)"
+                                                    title="Vender a precio individual/unitario">
+                                                <span>@(ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1 ? (ProductoEnEdicion.UnidadMedida == "Caja" ? "Caja" : "Empaque") : "Unitario"): $@ProductoEnEdicion.PrecioVenta.ToString("F2")</span>
+                                                @if (!EsModoGranelActivo)
+                                                {
+                                                    <span class="badge bg-white text-primary px-1" style="font-size: 8px;">ACTIVO</span>
+                                                }
+                                            </button>
+
+                                            <!-- Píldora Modo Granel / Menudeo -->
+                                            <button type="button" 
+                                                    class="btn btn-sm py-0 px-2 rounded-pill d-flex align-items-center gap-1 @(EsModoGranelActivo ? "btn-success fw-bold shadow-sm" : "btn-outline-secondary opacity-75")"
+                                                    style="font-size: 10px;"
+                                                    @onclick="() => SeleccionarModoPrecio(true)"
+                                                    title="Presiona [ESPACIO] o clic para alternar a Menudeo/Granel">
+                                                <span>@(ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1 ? "Granel / Sobre" : "Granel"): $@ProductoEnEdicion.PrecioGranel.Value.ToString("F2")</span>
+                                                @if (EsModoGranelActivo)
+                                                {
+                                                    <span class="badge bg-white text-success px-1" style="font-size: 8px;">ACTIVO</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted" style="font-size: 9px;">[Espacio]</span>
+                                                }
+                                            </button>
+                                        </div>
+                                    }
+                                    <div class="mt-1 d-flex align-items-center gap-2">
+                                        <span class="badge @(ProductoEnEdicion.Stock > 5 ? "bg-success bg-opacity-10 text-success border border-success border-opacity-25" : "bg-warning bg-opacity-10 text-warning-emphasis border border-warning border-opacity-25")" style="font-size: 10px;">
+                                            Stock disponible: @ProductoEnEdicion.Stock.ToString("G29") @(ProductoEnEdicion.EsGranel ? ProductoEnEdicion.UnidadMedida : "uds")
+                                            @if (ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1)
+                                            {
+                                                <span> (@((ProductoEnEdicion.Stock * ProductoEnEdicion.CantidadPorEmpaque.Value).ToString("G29")) sobres/piezas)</span>
+                                            }
+                                        </span>
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    <!-- Celda de Cantidad con Foco Automático y VACÍA (Sin 1 por default) -->
+                                    <input @ref="inputCantidadRef"
+                                           type="number"
+                                           step="@(EsModoGranelActivo || ProductoEnEdicion.EsGranel ? "any" : "1")"
+                                           min="@(EsModoGranelActivo || ProductoEnEdicion.EsGranel ? "0.001" : "1")"
+                                           max="@(EsModoGranelActivo && ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1 ? (ProductoEnEdicion.Stock * ProductoEnEdicion.CantidadPorEmpaque.Value) : ProductoEnEdicion.Stock)"
+                                           class="form-control form-control-sm text-center fw-bold border-2 border-primary shadow-sm"
+                                           placeholder=""
+                                           @bind="CantidadEnEdicion"
+                                           @onkeydown="HandleCantidadKeyDown" />
+                                </td>
+                                <td>
+                                    <div class="position-relative">
+                                        <input type="text" 
+                                               class="form-control form-control-sm bg-light text-end font-monospace text-secondary fw-bold" 
+                                               value="@($"${PrecioActualEdicion:F2}")" 
+                                               readonly 
+                                               disabled 
+                                               style="cursor: not-allowed;" />
+                                        @if (EsModoGranelActivo)
+                                        {
+                                            <span class="position-absolute top-0 start-0 translate-middle-y badge bg-success text-white" 
+                                                  style="font-size: 8px; margin-left: 8px;">
+                                                @(ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1 ? "Granel/Sobre" : (ProductoEnEdicion.UnidadMedida ?? "Granel"))
+                                            </span>
+                                        }
+                                        else if (ProductoEnEdicion.PrecioGranel.HasValue && ProductoEnEdicion.PrecioGranel.Value > 0)
+                                        {
+                                            <span class="position-absolute top-0 start-0 translate-middle-y badge bg-primary text-white" 
+                                                  style="font-size: 8px; margin-left: 8px;">
+                                                Unidad
+                                            </span>
+                                        }
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="fw-bold text-end text-primary font-monospace pe-2" style="line-height: 31px; font-size: 14px;">
+                                        @($"${((CantidadEnEdicion ?? 0m) * PrecioActualEdicion):F2}")
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    <button type="button" 
+                                            class="btn btn-sm btn-outline-danger p-0 px-2 fw-bold" 
+                                            @onclick="CancelarProductoEnEdicion" 
+                                            title="Cancelar selección (Esc)">
+                                        &times;
+                                    </button>
+                                </td>
+                            }
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Panel Derecho: Barra Lateral Oscura de Acciones -->
+        <aside class="pos-action-sidebar">
+            <div>
+                <!-- Acciones Operativas Superiores -->
+                <button type="button" class="pos-sidebar-btn" @onclick="AbrirRetiro" title="Retiro de Efectivo de Caja [Ctrl+R]">
+                    <span>Retiro Efectivo</span>
+                    <span class="shortcut-badge">Ctrl+R</span>
+                </button>
+                <button type="button" class="pos-sidebar-btn" @onclick="AbrirDevolucion" title="Registro de Devoluciones [Ctrl+D o Alt+D]">
+                    <span>Devoluciones</span>
+                    <span class="shortcut-badge">Ctrl+D</span>
+                </button>
+                <button type="button" class="pos-sidebar-btn" @onclick="AbrirGasto" title="Registrar Gasto Menor de Caja [Ctrl+G]">
+                    <span>Registrar Gasto</span>
+                    <span class="shortcut-badge">Ctrl+G</span>
+                </button>
+                <button type="button" class="pos-sidebar-btn" @onclick="AbrirReimpresion" title="Reimpresión de Comprobantes [Ctrl+P]">
+                    <span>Reimpresiones</span>
+                    <span class="shortcut-badge">Ctrl+P</span>
+                </button>
+                <button type="button" class="pos-sidebar-btn" @onclick="AbrirModalGaveta" title="Abrir Gaveta de Dinero (Doble Autorización Cajero + Admin) [Ctrl+B]">
+                    <span>Abrir Gaveta</span>
+                    <span class="shortcut-badge">Ctrl+B</span>
+                </button>
+                <button type="button" class="pos-sidebar-btn @(isContingencyActive ? "amber" : "")" @onclick="AbrirContingencia" title="Gestión de Facturación Electrónica y Contingencia MH">
+                    <span>Contingencia MH</span>
+                    <span class="shortcut-badge">DTE</span>
+                </button>
+                <button type="button" class="pos-sidebar-btn red" @onclick="AbrirModalMerma" disabled="@(!Carrito.Any())" title="Dar de baja los productos cargados en el carrito como Merma / Gasto Interno">
+                    <span>Salida / Merma</span>
+                    <span class="shortcut-badge">Baja</span>
+                </button>
+            </div>
+
+            <div>
+                <!-- Acciones de Turno y Cierre Inferiores -->
+                @if (CorteActivo != null)
+                {
+                    <div class="p-2 mb-2 rounded border bg-light text-center shadow-sm">
+                        <div class="text-success fw-bold small">● Turno Activo #@CorteActivo.IdCorte</div>
+                        <div class="text-muted" style="font-size: 11px;">Fondo Inicial: $@CorteActivo.MontoInicial.ToString("F2")</div>
+                    </div>
+                    <button type="button" class="pos-sidebar-btn green" @onclick="AbrirCorteX" title="Arqueo / Corte X Parcial [F11]">
+                        <span>Corte X (Parcial)</span>
+                        <span class="shortcut-badge">F11</span>
+                    </button>
+                    <button type="button" class="pos-sidebar-btn red" @onclick="AbrirCorteZ" title="Cierre Definitivo de Turno / Corte Z [F12]">
+                        <span>Corte Z (Cierre)</span>
+                        <span class="shortcut-badge">F12</span>
+                    </button>
+                }
+                else
+                {
+                    <div class="p-2 mb-2 rounded border bg-warning bg-opacity-10 border-warning text-center shadow-sm">
+                        <div class="text-warning-emphasis fw-bold small">○ Caja Cerrada</div>
+                        <div class="text-muted" style="font-size: 11px;">Sin turno activo</div>
+                    </div>
+                    <button type="button" class="pos-sidebar-btn green fw-bold" @onclick="() => AbrirModalAperturaTurno()" title="Abrir Turno de Caja con Fondo Inicial">
+                        <span>+ Abrir Turno</span>
+                        <span class="shortcut-badge">Caja</span>
+                    </button>
+                    <button type="button" class="pos-sidebar-btn green opacity-75" @onclick="AbrirCorteX" title="Arqueo / Corte X Parcial [F11]">
+                        <span>Corte X (Parcial)</span>
+                        <span class="shortcut-badge">F11</span>
+                    </button>
+                    <button type="button" class="pos-sidebar-btn red opacity-75" @onclick="AbrirCorteZ" title="Cierre Definitivo de Turno / Corte Z [F12]">
+                        <span>Corte Z (Cierre)</span>
+                        <span class="shortcut-badge">F12</span>
+                    </button>
+                }
+                <button type="button" class="pos-sidebar-btn dark-red" @onclick="CerrarSesion" title="Cerrar Sesión">
+                    <span>Cerrar Sesión</span>
+                    <span class="shortcut-badge">Salir</span>
+                </button>
+            </div>
+        </aside>
+    </div>
+
+    <!-- 4. Barra Inferior de Atajos y Total de la Venta -->
+    <footer class="pos-bottom-bar">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="pos-shortcut-helper">ESPACIO: Buscar Producto</span>
+            <span class="pos-shortcut-helper">F1-F9: Tipo Comprobante</span>
+            <span class="pos-shortcut-helper">F10: Cobrar y Emitir</span>
+        </div>
+
+        <div class="d-flex align-items-center gap-3">
+            <button type="button" 
+                    class="btn btn-outline-danger shadow-sm d-flex align-items-center gap-2 px-3 fw-bold rounded-3"
+                    style="height: 48px; border-width: 2px;"
+                    disabled="@(!Carrito.Any() || isProcessingPayment)"
+                    @onclick="AbrirModalMerma"
+                    title="Dar de baja los productos cargados en el carrito como Merma / Salida Interna a Costo">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+                <span>Baja / Merma</span>
+            </button>
+
+            <div class="text-end">
+                <div class="pos-total-tag">TOTAL DE LA VENTA</div>
+                <div class="pos-total-amount">$@TotalCarrito.ToString("F2")</div>
+            </div>
+
+            <button type="button" 
+                    class="pos-cobrar-btn shadow-sm"
+                    disabled="@(!Carrito.Any() || isProcessingPayment)"
+                    @onclick="AbrirCobro" 
+                    title="Cobrar y Emitir Comprobante [F10]">
+                <span>Cobrar y Emitir</span>
+                <span class="badge bg-dark bg-opacity-25 text-white" style="font-size: 11px;">F10</span>
+            </button>
+        </div>
+    </footer>
+</div>
+
+<!-- ========================================================================= -->
+<!-- MODALES Y DIÁLOGOS DE OPERACIÓN                                           -->
+<!-- ========================================================================= -->
+
+<!-- Buscador Predictivo de Productos (Barra Espaciadora) -->
+<ProductSearchModal @bind-IsOpen="isProductSearchOpen" 
+                    PermitirSinStock="false" 
+                    TerminoInicial="@TerminoBusquedaModal" 
+                    OnProductSelected="OnProductSelectedFromSearchModal" />
+
+<!-- Diálogo de Cobro y Métodos de Pago (F10) -->
+<PaymentDialog @ref="paymentDialogRef" @bind-IsOpen="isPaymentOpen" Total="@TotalCarrito" EsAnticipo="@(TipoComprobante.Equals("Anticipo", StringComparison.OrdinalIgnoreCase))" OnConfirm="ProcesarCobro" />
+
+<!-- Visualizador y Emisión de Ticket Térmico -->
+<TicketPreviewDialog @ref="ticketPreviewDialogRef" @bind-IsOpen="isTicketOpen" Venta="@UltimaVentaRegistrada" OnVerCarta="AbrirDocumentoCarta" OnNuevaVenta="NuevaVenta" />
+
+<!-- Visualizador y Emisión de Documento en Formato Carta (CCF, Factura, Notas, etc.) -->
+<InvoiceLetterModal @bind-IsOpen="isInvoiceLetterOpen" Venta="@UltimaVentaRegistrada" OnImprimirTermico="AbrirTicketTermico" OnNuevaVenta="NuevaVenta" />
+
+<!-- Creación Rápida de Cliente -->
+<QuickCustomerModal @bind-IsOpen="isQuickCustomerOpen" OnCreated="OnClienteCreado" />
+
+<!-- Modal de Contingencia MH FelSv -->
+<ContingencyModal @bind-IsOpen="isContingencyModalOpen" OnContingencyStatusChanged="OnContingencyStatusChanged" />
+
+<!-- Modal de Apertura de Turno de Caja -->
+@if (isAperturaTurnoModalOpen)
+{
+    <div class="modal-backdrop-custom" tabindex="-1" style="z-index: 1090;" @onclick="() => isAperturaTurnoModalOpen = false">
+        <div class="modal-content-custom" style="max-width: 500px;" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center text-white"
+                 style="background: linear-gradient(135deg, #14532d 0%, #166534 100%);">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+                        <circle cx="12" cy="12" r="2"></circle>
+                        <path d="M6 12h.01M18 12h.01"></path>
+                    </svg>
+                    <div>
+                        <h6 class="mb-0 fw-bold text-white">Apertura de Turno de Caja</h6>
+                        <small class="text-white-50" style="font-size: 11px;">Control de efectivo y ventas del turno</small>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-sm text-white-50 p-0 border-0 bg-transparent fs-5 lh-1" 
+                        @onclick="() => isAperturaTurnoModalOpen = false">&times;</button>
+            </div>
+
+            <div class="p-4 bg-white">
+                @if (!string.IsNullOrEmpty(MensajeAperturaTurnoContexto))
+                {
+                    <div class="alert alert-warning py-2 px-3 small mb-3 border-0 bg-warning bg-opacity-10 text-dark">
+                        <span class="fw-bold">Nota:</span> @MensajeAperturaTurnoContexto
+                    </div>
+                }
+
+                <div class="card bg-light border p-3 rounded-3 mb-3 small">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-muted">Cajero:</span>
+                        <span class="fw-bold text-dark">@(AuthService.CurrentUser?.Nombre ?? "Cajero")</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-muted">Fecha y Hora:</span>
+                        <span class="fw-semibold text-secondary">@DateTime.Now.ToString("dd/MM/yyyy hh:mm tt")</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span class="text-muted">Estación:</span>
+                        <span class="badge bg-secondary">Caja Principal (POS)</span>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-dark">Fondo Inicial de Caja (Cambio en Gaveta):</label>
+                    <div class="input-group input-group-lg">
+                        <span class="input-group-text bg-light fw-bold text-secondary">$</span>
+                        <input type="number" step="0.01" min="0" class="form-control fw-bold fs-4 text-success" 
+                               @bind="MontoFondoInicialApertura" placeholder="50.00" autofocus />
+                    </div>
+                    <div class="form-text small text-muted">
+                        Ingresa el monto de dinero físico con el que se inicia la gaveta para dar cambio.
+                    </div>
+                </div>
+
+                <!-- Botones rápidos de fondo -->
+                <div class="d-flex gap-2 mb-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" @onclick="() => MontoFondoInicialApertura = 0m">$0.00</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" @onclick="() => MontoFondoInicialApertura = 20m">$20.00</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" @onclick="() => MontoFondoInicialApertura = 50m">$50.00</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" @onclick="() => MontoFondoInicialApertura = 100m">$100.00</button>
+                </div>
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="() => isAperturaTurnoModalOpen = false" disabled="@isOpeningTurno">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm" style="background-color: #15803d; border-color: #15803d;" 
+                        @onclick="ConfirmarAperturaTurno" disabled="@isOpeningTurno">
+                    @if (isOpeningTurno)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Abriendo turno...</span>
+                    }
+                    else
+                    {
+                        <span>✓ Iniciar Turno y Abrir Caja</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal de Arqueo Físico y Desglose de Efectivo (Billetes y Monedas para Corte X y Corte Z) -->
+<ArqueoEfectivoModal @bind-IsOpen="isArqueoModalOpen" 
+                     Corte="@CorteActivo" 
+                     TipoCorte="@TipoCorteSeleccionado" 
+                     OnCorteListoParaImprimir="AbrirTicketCorte"
+                     OnCajaCerrada="CargarTurnoCaja" />
+
+<!-- Modal Previsualización e Impresión Térmica de Ticket de Corte (X y Z) -->
+<CorteTicketModal @bind-IsOpen="isCorteTicketModalOpen" 
+                  Resumen="@ResumenCorteSeleccionado" />
+
+<!-- Modal de Apertura de Gaveta con Doble Autorización (Cajero + Admin) -->
+<CashDrawerAuthModal @bind-IsOpen="isCashDrawerModalOpen" OnOpened="OnGavetaAbierta" />
+
+<!-- Modal de Autorización Administrativa para Cortes y Retiros de Caja -->
+<PosSupervisorAuthModal @bind-IsOpen="isSupervisorAuthModalOpen"
+                        Titulo="@SupervisorAuthTitulo"
+                        OperacionNombre="@SupervisorAuthOperacion"
+                        BadgeColor="@SupervisorAuthBadgeColor"
+                        OnAuthorized="OnSupervisorAutorizado" />
+
+<!-- Modal de Salida de Inventario por Merma desde el Carrito de POS -->
+<PosMermaModal @bind-IsOpen="isMermaModalOpen"
+               Carrito="@Carrito"
+               OnMermaCompleted="OnMermaRegistradaExito" />
+
+
+<!-- Modal de Reimpresiones (Ctrl+P) -->
+@if (isReimpresionModalOpen)
+{
+    <div class="modal-backdrop-custom" tabindex="-1" style="z-index: 1080;" @onclick="() => isReimpresionModalOpen = false">
+        <div class="modal-content-custom large" style="max-width: 720px;" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-dark text-white">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 fw-bold text-white">Historial Rápido &amp; Reimpresión de Tickets</h6>
+                </div>
+                <button type="button" class="btn btn-sm text-white-50 p-0 border-0 bg-transparent fs-5 lh-1" 
+                        @onclick="() => isReimpresionModalOpen = false">&times;</button>
+            </div>
+            <div class="p-3 bg-white" style="max-height: 400px; overflow-y: auto;">
+                @if (!VentasRecientes.Any())
+                {
+                    <div class="text-center py-4 text-muted small">
+                        No hay ventas registradas en la sesión actual.
+                    </div>
+                }
+                else
+                {
+                    <table class="table table-sm table-hover align-middle small mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th># Comprobante</th>
+                                <th>Tipo</th>
+                                <th>Cliente</th>
+                                <th>Hora</th>
+                                <th class="text-end">Total</th>
+                                <th class="text-center">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var v in VentasRecientes)
+                            {
+                                <tr>
+                                    <td class="font-monospace fw-bold">@v.NumComprobante</td>
+                                    <td><span class="badge bg-secondary">@v.TipoComprobante</span></td>
+                                    <td>@(v.Cliente?.Nombre ?? "Cliente General")</td>
+                                    <td>@v.FechaHora.ToString("hh:mm tt")</td>
+                                    <td class="text-end font-monospace fw-bold text-success">$@v.Total.ToString("F2")</td>
+                                    <td class="text-center">
+                                        <button type="button" class="btn btn-sm btn-outline-primary py-0 px-2"
+                                                @onclick="() => ReimprimirVenta(v)">
+                                            Imprimir
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+            <div class="p-3 border-top bg-light text-end">
+                <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => isReimpresionModalOpen = false">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal de Devoluciones & Anulaciones (Ctrl+D) -->
+@if (isDevolucionModalOpen)
+{
+    <div class="modal-backdrop-custom" tabindex="-1" style="z-index: 1080;" @onclick="() => isDevolucionModalOpen = false">
+        <div class="modal-content-custom large" style="max-width: 780px;" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-dark text-white">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 fw-bold text-white">Módulo de Devoluciones &amp; Anulaciones [Ctrl+D]</h6>
+                </div>
+                <button type="button" class="btn btn-sm text-white-50 p-0 border-0 bg-transparent fs-5 lh-1" 
+                        @onclick="() => isDevolucionModalOpen = false">&times;</button>
+            </div>
+            <div class="p-3 bg-light border-bottom">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white text-muted">
+                        <svg width="13" height="13" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                        </svg>
+                    </span>
+                    <input type="text" class="form-control" placeholder="Buscar por número de comprobante o cliente..." 
+                           @bind="BusquedaDevolucion" @bind:event="oninput" />
+                    @if (!string.IsNullOrEmpty(BusquedaDevolucion))
+                    {
+                        <button class="btn btn-outline-secondary" type="button" @onclick="() => BusquedaDevolucion = string.Empty">&times;</button>
+                    }
+                </div>
+            </div>
+            <div class="p-3 bg-white" style="max-height: 400px; overflow-y: auto;">
+                @{
+                    var ventasFiltradas = VentasRecientes.Where(v =>
+                        string.IsNullOrWhiteSpace(BusquedaDevolucion) ||
+                        (v.NumComprobante?.Contains(BusquedaDevolucion, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                        (v.Cliente?.Nombre?.Contains(BusquedaDevolucion, StringComparison.OrdinalIgnoreCase) ?? false)
+                    ).ToList();
+                }
+                @if (!ventasFiltradas.Any())
+                {
+                    <div class="text-center py-4 text-muted small">
+                        No se encontraron ventas para devolución en la sesión actual.
+                    </div>
+                }
+                else
+                {
+                    <table class="table table-sm table-hover align-middle small mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th># Comprobante</th>
+                                <th>Tipo</th>
+                                <th>Cliente</th>
+                                <th>Hora</th>
+                                <th class="text-end">Total</th>
+                                <th class="text-center">Estado</th>
+                                <th class="text-center" style="width: 140px;">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var v in ventasFiltradas)
+                            {
+                                <tr>
+                                    <td class="font-monospace fw-bold">@v.NumComprobante</td>
+                                    <td><span class="badge bg-secondary">@v.TipoComprobante</span></td>
+                                    <td>@(v.Cliente?.Nombre ?? "Cliente General")</td>
+                                    <td>@v.FechaHora.ToString("hh:mm tt")</td>
+                                    <td class="text-end font-monospace fw-bold text-success">$@v.Total.ToString("F2")</td>
+                                    <td class="text-center">
+                                        <span class="badge @(v.Estado == "Completada" ? "bg-success" : "bg-danger")">
+                                            @v.Estado
+                                        </span>
+                                    </td>
+                                    <td class="text-center">
+                                        @if (v.Estado == "Completada")
+                                        {
+                                            <button type="button" class="btn btn-sm btn-danger py-0 px-2 fw-semibold shadow-sm"
+                                                    @onclick="() => AbrirDetalleParaDevolucion(v)">
+                                                Anular / Devolver
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                                                    @onclick="() => AbrirDetalleParaDevolucion(v)">
+                                                Ver Detalle
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+            <div class="p-3 border-top bg-light text-end">
+                <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="() => isDevolucionModalOpen = false">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal Detalle de Venta y Confirmación de Anulación / Devolución -->
+<SaleDetailModal @bind-IsOpen="isSaleDetailOpen" 
+                 Venta="@VentaParaDevolucion" 
+                 OnReimprimir="ReimprimirVenta" 
+                 OnVerCarta="AbrirDocumentoCarta" 
+                 OnAnulada="OnVentaAnuladaExito" />
+
+<!-- Modal de Operaciones de Caja (Retiro / Gasto) -->
+@if (isCajaOperacionModalOpen)
+{
+    <div class="modal-backdrop-custom" tabindex="-1" style="z-index: 1080;" @onclick="() => isCajaOperacionModalOpen = false">
+        <div class="modal-content-custom" style="max-width: 480px;" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-dark text-white">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 fw-bold text-white">@(TipoOperacionCaja == "Retiro" ? "Retiro de Efectivo de Caja" : "Registrar Gasto de Caja")</h6>
+                </div>
+                <button type="button" class="btn btn-sm text-white-50 p-0 border-0 bg-transparent fs-5 lh-1" 
+                        @onclick="() => isCajaOperacionModalOpen = false">&times;</button>
+            </div>
+            <div class="p-4 bg-white">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Monto ($):</label>
+                    <input type="number" step="0.01" min="0" class="form-control form-control-lg fw-bold" 
+                           @bind="MontoOperacionCaja" placeholder="0.00" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Motivo / Justificación:</label>
+                    <input type="text" class="form-control" @bind="MotivoOperacionCaja" 
+                           placeholder="@(TipoOperacionCaja == "Retiro" ? "Ej: Depósito bancario, pago proveedor..." : "Ej: Compra de insumos de limpieza...")" />
+                </div>
+                <div class="form-check form-switch pt-2 border-top">
+                    <input class="form-check-input" type="checkbox" id="chkPrintRetiro" @bind="ImprimirComprobanteOperacionCaja" />
+                    <label class="form-check-label small fw-semibold text-dark" for="chkPrintRetiro">
+                        🖨️ Imprimir comprobante térmico de @(TipoOperacionCaja == "Retiro" ? "retiro" : "gasto")
+                    </label>
+                </div>
+            </div>
+            <div class="p-3 border-top bg-light d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="() => isCajaOperacionModalOpen = false">
+                    Cancelar
+                </button>
+                <button type="button" class="btn btn-primary btn-sm px-4 fw-bold" @onclick="ConfirmarOperacionCaja">
+                    Registrar y Emitir
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (UltimoMovimientoParaImprimir != null)
+{
+    <!-- Plantilla Térmica de Movimiento de Caja (Retiro / Gasto) para Fallback JS / Navegador -->
+    <div id="movimiento-caja-receipt" style="display: none;">
+        <div class="ticket-header" style="text-align: center; margin-bottom: 6px; border-bottom: 1px dashed #000; padding-bottom: 4px;">
+            <div class="ticket-title" style="font-size: 13px; font-weight: bold;">@(configuracionNegocioPos?.NombreNegocio ?? "COREAS ERP")</div>
+            @if (!string.IsNullOrEmpty(configuracionNegocioPos?.Propietario))
+            {
+                <div style="font-size: 10px;">@configuracionNegocioPos.Propietario</div>
+            }
+            @if (!string.IsNullOrEmpty(configuracionNegocioPos?.Direccion))
+            {
+                <div style="font-size: 10px;">@configuracionNegocioPos.Direccion</div>
+            }
+            @if (!string.IsNullOrEmpty(configuracionNegocioPos?.Telefono))
+            {
+                <div style="font-size: 10px;">TEL: @configuracionNegocioPos.Telefono</div>
+            }
+            <div style="font-weight: bold; margin-top: 4px; font-size: 11px;">*** @(UltimoMovimientoParaImprimir.Tipo == "Retiro" ? "RETIRO DE EFECTIVO" : (UltimoMovimientoParaImprimir.Tipo == "Gasto" ? "SALIDA POR GASTO" : "MOVIMIENTO DE CAJA")) ***</div>
+            <div style="font-size: 9.5px; letter-spacing: 0.5px;">CONTROL INTERNO DE CAJA</div>
+        </div>
+
+        <div style="border-bottom: 1px dashed #000; padding-bottom: 4px; margin-bottom: 6px; font-size: 10.5px; line-height: 1.35;">
+            <div><strong>FOLIO MOV:</strong> #MOV-@UltimoMovimientoParaImprimir.IdMovimiento.ToString("D6")</div>
+            @if (UltimoMovimientoParaImprimir.IdCorte.HasValue)
+            {
+                <div><strong>TURNO CAJA:</strong> CC-@UltimoMovimientoParaImprimir.IdCorte.Value.ToString("D5")</div>
+            }
+            <div><strong>FECHA:</strong> @UltimoMovimientoParaImprimir.FechaHora.ToString("dd/MM/yyyy hh:mm tt")</div>
+            <div><strong>TIPO:</strong> @UltimoMovimientoParaImprimir.Tipo.ToUpper()</div>
+            <div><strong>CAJERO:</strong> @(CajeroUltimoMovimiento ?? "Cajero")</div>
+            @if (!string.IsNullOrWhiteSpace(SupervisorUltimoMovimiento))
+            {
+                <div><strong>AUTORIZADO POR:</strong> @SupervisorUltimoMovimiento</div>
+            }
+        </div>
+
+        <div style="border-bottom: 1px dashed #000; padding: 6px 0; margin-bottom: 6px;">
+            <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: bold;">
+                <span>TOTAL @(UltimoMovimientoParaImprimir.Tipo == "Retiro" ? "RETIRADO" : "GASTO"):</span>
+                <span>$@UltimoMovimientoParaImprimir.Monto.ToString("N2")</span>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 8px; font-size: 11px;">
+            <div style="font-weight: bold; margin-bottom: 2px;">CONCEPTO / JUSTIFICACION:</div>
+            <div style="white-space: pre-wrap; font-size: 10.5px; border-left: 2px solid #000; padding-left: 4px;">@UltimoMovimientoParaImprimir.Motivo</div>
+        </div>
+
+        <div style="text-align: center; margin-top: 20px; font-size: 10px;">
+            <div style="margin-bottom: 16px;">
+                <div>____________________________</div>
+                <div>ENTREGO: @((CajeroUltimoMovimiento ?? "CAJERO").ToUpper())</div>
+            </div>
+            <div>
+                <div>____________________________</div>
+                <div>RECIBIO / AUTORIZO: @((SupervisorUltimoMovimiento ?? "ADMINISTRACION / RECEPTOR").ToUpper())</div>
+            </div>
+        </div>
+
+        <div style="text-align: center; font-size: 10px; border-top: 1px dashed #000; padding-top: 4px; margin-top: 15px;">
+            <div>Comprobante de control interno de caja.</div>
+            <div>Conserve este ticket para arqueo de turno.</div>
+        </div>
+    </div>
+}
+
+@code {
+    // Definición de Comprobantes según captura (F1 a F9)
+    private record VoucherTab(string Tecla, string Nombre);
+    private readonly VoucherTab[] Vouchers = new VoucherTab[]
+    {
+        new("F1", "Ticket"),
+        new("F2", "Factura"),
+        new("F3", "CCF (03)"),
+        new("F4", "N.Remisión (04)"),
+        new("F5", "N.Crédito (05)"),
+        new("F6", "N.Débito (06)"),
+        new("F7", "Suj.Excluido (14)"),
+        new("F8", "Anticipo"),
+        new("F9", "Cotización")
+    };
+
+    private int SelectedComprobanteIndex = 0;
+    private string TipoComprobante => Vouchers[SelectedComprobanteIndex].Nombre;
+
+    // Catálogos y Estado de Venta
+    private List<Cliente> Clientes = new();
+    private int SelectedClienteId = 1; // 1 = Cliente Mostrador / Consumidor Final
+    private List<CartItemDto> Carrito = new();
+    private decimal TotalCarrito => Carrito.Sum(i => i.Subtotal);
+
+    // Fila de Captura Activa
+    private ElementReference inputUpcRef;
+    private ElementReference inputCantidadRef;
+    private string UpcInputValue = "";
+    private Producto? ProductoEnEdicion = null;
+    private decimal? CantidadEnEdicion = null; // Requerimiento: VACÍA (Sin 1 por default)
+    private bool EsModoGranelActivo = false;
+    private decimal PrecioActualEdicion = 0.00m;
+    private string? PosErrorMessage;
+    private string? PosWarningMessage;
+
+    private void MostrarAlerta(string mensaje, bool esError = true)
+    {
+        if (esError) PosErrorMessage = mensaje;
+        else PosWarningMessage = mensaje;
+        StateHasChanged();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(4500);
+            await InvokeAsync(() =>
+            {
+                if (esError) PosErrorMessage = null;
+                else PosWarningMessage = null;
+                StateHasChanged();
+            });
+        });
+    }
+
+    // Modales
+    private PaymentDialog? paymentDialogRef;
+    private TicketPreviewDialog? ticketPreviewDialogRef;
+    private bool isProductSearchOpen = false;
+    private bool isPaymentOpen = false;
+    private bool isTicketOpen = false;
+    private bool isInvoiceLetterOpen = false;
+    private bool isQuickCustomerOpen = false;
+    private bool isArqueoModalOpen = false;
+    private bool isCorteTicketModalOpen = false;
+    private string TipoCorteSeleccionado = "CORTE X";
+    private ResumenCorteDto? ResumenCorteSeleccionado;
+    private bool isReimpresionModalOpen = false;
+    private bool isCajaOperacionModalOpen = false;
+    private bool isContingencyModalOpen = false;
+    private bool isContingencyActive = false;
+    private bool isCashDrawerModalOpen = false;
+    private bool isDteHabilitado = true;
+    private bool isDevolucionModalOpen = false;
+    private bool isSaleDetailOpen = false;
+    private Venta? VentaParaDevolucion;
+    private string BusquedaDevolucion = "";
+
+    // Caja y Turno
+    private CorteCaja? CorteActivo;
+    private bool isAperturaTurnoModalOpen = false;
+    private decimal MontoFondoInicialApertura = 50.00m;
+    private bool isOpeningTurno = false;
+    private string? MensajeAperturaTurnoContexto;
+    private string TerminoBusquedaModal = "";
+    private bool isProcessingPayment = false;
+    private string TipoOperacionCaja = "Retiro";
+    private decimal MontoOperacionCaja = 0;
+    private string MotivoOperacionCaja = "";
+    private bool ImprimirComprobanteOperacionCaja = true;
+    private MovimientoCaja? UltimoMovimientoParaImprimir;
+    private string? CajeroUltimoMovimiento;
+    private string? SupervisorUltimoMovimiento;
+    private ConfiguracionNegocio? configuracionNegocioPos;
+
+    // Autorización de Supervisor para Operaciones Críticas (Cortes y Retiros)
+    private bool isSupervisorAuthModalOpen = false;
+    private string SupervisorAuthTitulo = "Autorización Requerida";
+    private string SupervisorAuthOperacion = "";
+    private string? SupervisorAuthBadgeColor = "bg-primary";
+    private Func<Task>? AccionPendienteAutorizacion;
+    private Usuario? SupervisorQueAutorizo;
+    private bool isMermaModalOpen = false;
+
+    private Venta? UltimaVentaRegistrada;
+    private List<Venta> VentasRecientes = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Suscripción a eventos de teclado globales y atajos
+        KeyboardBridgeService.OnFunctionKeyPressed += HandleBridgeFunctionKey;
+        KeyboardBridgeService.OnShortcutPressed += HandleBridgeShortcut;
+        KeyboardBridgeService.OnSpacePressed += HandleBridgeSpace;
+        KeyboardBridgeService.OnBarcodeScanned += HandleBridgeBarcode;
+
+        try
+        {
+            var config = await SettingsService.GetConfiguracionAsync();
+            configuracionNegocioPos = config;
+            isDteHabilitado = config?.HabilitarDte ?? true;
+        }
+        catch { }
+
+        await CargarCatalogos();
+        await CargarTurnoCaja();
+        _ = VerificarEstadoContingencia();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await EnfocarUpcAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        KeyboardBridgeService.OnFunctionKeyPressed -= HandleBridgeFunctionKey;
+        KeyboardBridgeService.OnShortcutPressed -= HandleBridgeShortcut;
+        KeyboardBridgeService.OnSpacePressed -= HandleBridgeSpace;
+        KeyboardBridgeService.OnBarcodeScanned -= HandleBridgeBarcode;
+    }
+
+    private async Task CargarCatalogos()
+    {
+        Clientes = await CustomerService.GetAllAsync();
+        if (Clientes.Any() && !Clientes.Any(c => c.IdCliente == SelectedClienteId))
+        {
+            SelectedClienteId = Clientes.First().IdCliente;
+        }
+        VentasRecientes = await PosService.GetVentasAsync(DateTime.Today);
+    }
+
+    private async Task CargarTurnoCaja()
+    {
+        int idUsuario = AuthService.CurrentUser?.IdUsuario ?? 1;
+        CorteActivo = await CashRegisterService.GetCorteActivoAsync(idUsuario);
+    }
+
+    private void SeleccionarComprobante(int index)
+    {
+        if (index >= 0 && index < Vouchers.Length)
+        {
+            SelectedComprobanteIndex = index;
+            StateHasChanged();
+        }
+    }
+
+    // =========================================================================
+    // ATAJOS GLOBALES
+    // =========================================================================
+
+    private void HandleBridgeFunctionKey(int fNum)
+    {
+        InvokeAsync(async () =>
+        {
+            if (fNum >= 1 && fNum <= 9)
+            {
+                SeleccionarComprobante(fNum - 1);
+            }
+            else if (fNum == 10)
+            {
+                if (isTicketOpen && ticketPreviewDialogRef != null)
+                {
+                    await ticketPreviewDialogRef.Imprimir();
+                }
+                else if (isPaymentOpen && paymentDialogRef != null)
+                {
+                    await paymentDialogRef.Confirmar();
+                }
+                else
+                {
+                    await AbrirCobro();
+                }
+            }
+            else if (fNum == 11)
+            {
+                await AbrirCorteX();
+            }
+            else if (fNum == 12)
+            {
+                await AbrirCorteZ();
+            }
+            StateHasChanged();
+        });
+    }
+
+    private void HandleBridgeShortcut(string shortcut)
+    {
+        InvokeAsync(async () =>
+        {
+            switch (shortcut)
+            {
+                case "Ctrl+R":
+                    await AbrirRetiro();
+                    break;
+                case "Ctrl+D":
+                    await AbrirDevolucion();
+                    break;
+                case "Ctrl+G":
+                    await AbrirGasto();
+                    break;
+                case "Ctrl+P":
+                    await AbrirReimpresion();
+                    break;
+                case "Ctrl+B":
+                    AbrirModalGaveta();
+                    break;
+            }
+            StateHasChanged();
+        });
+    }
+
+    private void HandleBridgeSpace()
+    {
+        InvokeAsync(() =>
+        {
+            if (!isProductSearchOpen && !isPaymentOpen && !isTicketOpen && ProductoEnEdicion == null)
+            {
+                isProductSearchOpen = true;
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void HandleBridgeBarcode(string barcode)
+    {
+        InvokeAsync(async () =>
+        {
+            if (!isPaymentOpen && !isTicketOpen && !isProductSearchOpen)
+            {
+                await BuscarPorCodigoBarrasAsync(barcode);
+            }
+        });
+    }
+
+    // =========================================================================
+    // FLUJO DE CAPTURA ACTIVA: UPC -> FOCO EN CANTIDAD VACÍA -> ENTER -> CARRITO -> FOCO EN UPC
+    // =========================================================================
+
+    private async Task HandleUpcKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == " " || e.Key == "Spacebar")
+        {
+            TerminoBusquedaModal = "";
+            isProductSearchOpen = true;
+            UpcInputValue = "";
+        }
+        else if (e.Key == "Enter")
+        {
+            if (!string.IsNullOrWhiteSpace(UpcInputValue))
+            {
+                await BuscarPorCodigoBarrasAsync(UpcInputValue.Trim());
+            }
+            else
+            {
+                TerminoBusquedaModal = "";
+                isProductSearchOpen = true;
+            }
+        }
+    }
+
+    private async Task BuscarPorCodigoBarrasAsync(string codigo)
+    {
+        var prod = await ProductService.GetByCodigoAsync(codigo);
+        if (prod != null)
+        {
+            if (prod.Stock <= 0)
+            {
+                MostrarAlerta($"El producto '{prod.Nombre}' no cuenta con existencias disponibles (Stock: {prod.Stock:G29}). En el punto de venta no se permite vender sin stock.", esError: true);
+                UpcInputValue = "";
+                await EnfocarUpcAsync();
+                return;
+            }
+            CargarProductoEnEdicion(prod);
+        }
+        else
+        {
+            // Abrir buscador con el término para que el usuario encuentre coincidencias
+            TerminoBusquedaModal = codigo;
+            isProductSearchOpen = true;
+        }
+    }
+
+    private void OnProductSelectedFromSearchModal(Producto prod)
+    {
+        isProductSearchOpen = false;
+        TerminoBusquedaModal = "";
+        if (prod.Stock <= 0)
+        {
+            MostrarAlerta($"El producto '{prod.Nombre}' no cuenta con existencias disponibles (Stock: {prod.Stock:G29}). En el punto de venta no se permite vender sin stock.", esError: true);
+            UpcInputValue = "";
+            _ = EnfocarUpcAsync();
+            return;
+        }
+        CargarProductoEnEdicion(prod);
+    }
+
+    private void CargarProductoEnEdicion(Producto prod)
+    {
+        if (prod.Stock <= 0)
+        {
+            MostrarAlerta($"El producto '{prod.Nombre}' no cuenta con existencias disponibles (Stock: {prod.Stock:G29}). En el punto de venta no se permite vender sin stock.", esError: true);
+            UpcInputValue = "";
+            _ = EnfocarUpcAsync();
+            return;
+        }
+
+        ProductoEnEdicion = prod;
+        bool tienePrecioGranel = prod.PrecioGranel.HasValue && prod.PrecioGranel.Value > 0;
+        EsModoGranelActivo = prod.EsGranel && tienePrecioGranel;
+        PrecioActualEdicion = (EsModoGranelActivo && tienePrecioGranel)
+            ? prod.PrecioGranel!.Value
+            : prod.PrecioVenta;
+        UpcInputValue = "";
+        CantidadEnEdicion = null; // Requerimiento: VACÍA (Sin 1 por default)
+        StateHasChanged();
+
+        // Enviar foco automáticamente a la celda de Cantidad
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(50);
+            await InvokeAsync(async () =>
+            {
+                try
+                {
+                    await inputCantidadRef.FocusAsync();
+                }
+                catch { }
+            });
+        });
+    }
+
+    private async Task HandleCantidadKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await ConfirmarAgregarAlCarritoAsync();
+        }
+        else if (e.Key == "Escape")
+        {
+            await CancelarProductoEnEdicion();
+        }
+        else if (e.Key == " " || e.Key == "Spacebar" || e.Code == "Space")
+        {
+            ToggleModoGranel();
+        }
+    }
+
+    private void ToggleModoGranel()
+    {
+        if (ProductoEnEdicion == null) return;
+
+        bool tienePrecioGranel = ProductoEnEdicion.PrecioGranel.HasValue && ProductoEnEdicion.PrecioGranel.Value > 0;
+        if (!tienePrecioGranel)
+        {
+            MostrarAlerta($"El producto '{ProductoEnEdicion.Nombre}' solo cuenta con Precio Unitario (${ProductoEnEdicion.PrecioVenta:F2}). No tiene configurado un precio a granel o caja.", esError: false);
+            EsModoGranelActivo = false;
+            PrecioActualEdicion = ProductoEnEdicion.PrecioVenta;
+            StateHasChanged();
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(30);
+                await InvokeAsync(async () => { try { await inputCantidadRef.FocusAsync(); } catch { } });
+            });
+            return;
+        }
+
+        EsModoGranelActivo = !EsModoGranelActivo;
+        if (EsModoGranelActivo)
+        {
+            PrecioActualEdicion = ProductoEnEdicion.PrecioGranel!.Value;
+            string etiqueta = (ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1)
+                ? "GRANEL / SOBRE"
+                : (!string.IsNullOrWhiteSpace(ProductoEnEdicion.UnidadMedida) ? ProductoEnEdicion.UnidadMedida.ToUpper() : "GRANEL");
+            MostrarAlerta($"Modo {etiqueta} activo: ${PrecioActualEdicion:F2}.", esError: false);
+        }
+        else
+        {
+            PrecioActualEdicion = ProductoEnEdicion.PrecioVenta;
+            string etiqueta = (ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1)
+                ? (ProductoEnEdicion.UnidadMedida == "Caja" ? "CAJA" : "EMPAQUE / UNIDAD")
+                : "UNIDAD";
+            MostrarAlerta($"Modo {etiqueta} activo: ${PrecioActualEdicion:F2}.", esError: false);
+        }
+        StateHasChanged();
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(30);
+            await InvokeAsync(async () =>
+            {
+                try
+                {
+                    await inputCantidadRef.FocusAsync();
+                }
+                catch { }
+            });
+        });
+    }
+
+    private void SeleccionarModoPrecio(bool aGranel)
+    {
+        if (ProductoEnEdicion == null) return;
+        if (aGranel)
+        {
+            bool tienePrecioGranel = ProductoEnEdicion.PrecioGranel.HasValue && ProductoEnEdicion.PrecioGranel.Value > 0;
+            if (!tienePrecioGranel)
+            {
+                MostrarAlerta($"El producto '{ProductoEnEdicion.Nombre}' no tiene configurado un precio a granel o caja.", esError: true);
+                return;
+            }
+            EsModoGranelActivo = true;
+            PrecioActualEdicion = ProductoEnEdicion.PrecioGranel!.Value;
+            string etiqueta = (ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1)
+                ? "GRANEL / SOBRE"
+                : (!string.IsNullOrWhiteSpace(ProductoEnEdicion.UnidadMedida) ? ProductoEnEdicion.UnidadMedida.ToUpper() : "GRANEL");
+            MostrarAlerta($"Modo {etiqueta} seleccionado: ${PrecioActualEdicion:F2}.", esError: false);
+        }
+        else
+        {
+            EsModoGranelActivo = false;
+            PrecioActualEdicion = ProductoEnEdicion.PrecioVenta;
+            string etiqueta = (ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1)
+                ? (ProductoEnEdicion.UnidadMedida == "Caja" ? "CAJA" : "EMPAQUE / UNIDAD")
+                : "UNIDAD";
+            MostrarAlerta($"Modo {etiqueta} seleccionado: ${PrecioActualEdicion:F2}.", esError: false);
+        }
+        StateHasChanged();
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(30);
+            await InvokeAsync(async () =>
+            {
+                try
+                {
+                    await inputCantidadRef.FocusAsync();
+                }
+                catch { }
+            });
+        });
+    }
+
+    private async Task ConfirmarAgregarAlCarritoAsync()
+    {
+        if (ProductoEnEdicion == null) return;
+
+        if (ProductoEnEdicion.Stock <= 0)
+        {
+            MostrarAlerta($"El producto '{ProductoEnEdicion.Nombre}' está agotado (Stock: 0).", esError: true);
+            await CancelarProductoEnEdicion();
+            return;
+        }
+
+        decimal cant = CantidadEnEdicion ?? 0m;
+        if (cant <= 0)
+        {
+            // No permitir agregar con 0 o vacío
+            return;
+        }
+
+        // Si el producto no es a granel y el modo granel no está activo, verificar si intentaron poner decimales
+        if (!ProductoEnEdicion.EsGranel && !EsModoGranelActivo && cant % 1m != 0m)
+        {
+            MostrarAlerta($"El producto '{ProductoEnEdicion.Nombre}' solo se vende por unidades enteras.", esError: true);
+            return;
+        }
+
+        // Buscamos si ya existe con la misma modalidad (EsGranel) y precio
+        var existente = Carrito.FirstOrDefault(i => i.IdProducto == ProductoEnEdicion.IdProducto && i.EsGranel == EsModoGranelActivo);
+
+        decimal factorConversion = (EsModoGranelActivo && ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1)
+            ? ProductoEnEdicion.CantidadPorEmpaque.Value
+            : 1m;
+
+        decimal cantBaseSolicitada = cant / factorConversion;
+
+        // Calcular el stock base ocupado por este producto en el carrito
+        decimal stockBaseEnCarrito = Carrito
+            .Where(i => i.IdProducto == ProductoEnEdicion.IdProducto)
+            .Sum(i => i.CantidadBaseStock);
+
+        decimal nuevoStockBaseTotal = stockBaseEnCarrito + cantBaseSolicitada;
+
+        if (nuevoStockBaseTotal > ProductoEnEdicion.Stock)
+        {
+            string unidad = ProductoEnEdicion.UnidadMedida ?? "uds";
+            if (EsModoGranelActivo && factorConversion > 1)
+            {
+                decimal sobresMaximos = Math.Max(0m, (ProductoEnEdicion.Stock - stockBaseEnCarrito) * factorConversion);
+                MostrarAlerta($"Existencias insuficientes para '{ProductoEnEdicion.Nombre}'. Disponibles en granel: {sobresMaximos:G29} sobres/piezas ({ProductoEnEdicion.Stock:G29} {unidad}). Ya en carrito equivalente: {stockBaseEnCarrito:G29} {unidad}. Solicitado: {cant:G29} sobres.", esError: true);
+            }
+            else
+            {
+                MostrarAlerta($"Existencias insuficientes para '{ProductoEnEdicion.Nombre}'. Stock disponible: {ProductoEnEdicion.Stock:G29} {unidad}. Ya en carrito: {stockBaseEnCarrito:G29} {unidad}. Solicitado: {cant:G29} {unidad}.", esError: true);
+            }
+            return;
+        }
+
+        string descPresentacion = EsModoGranelActivo 
+            ? (ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1 ? "Sobre" : "Granel")
+            : (!string.IsNullOrWhiteSpace(ProductoEnEdicion.UnidadMedida) ? ProductoEnEdicion.UnidadMedida : "Unidad");
+
+        decimal costoItem = EsModoGranelActivo 
+            ? ProductoEnEdicion.CostoEfectivoGranel 
+            : (ProductoEnEdicion.PrecioCompra > 0 ? ProductoEnEdicion.PrecioCompra : 0m);
+
+        // Agregar al carrito
+        if (existente != null)
+        {
+            existente.Cantidad += cant;
+            existente.Precio = PrecioActualEdicion > 0 ? PrecioActualEdicion : ProductoEnEdicion.PrecioVenta;
+            existente.CostoUnitario = costoItem;
+        }
+        else
+        {
+            Carrito.Add(new CartItemDto
+            {
+                IdProducto = ProductoEnEdicion.IdProducto,
+                Codigo = ProductoEnEdicion.Codigo,
+                Nombre = ProductoEnEdicion.Nombre,
+                Precio = PrecioActualEdicion > 0 ? PrecioActualEdicion : ProductoEnEdicion.PrecioVenta,
+                CostoUnitario = costoItem,
+                Cantidad = cant,
+                StockDisponible = ProductoEnEdicion.Stock,
+                EsGranel = EsModoGranelActivo,
+                CantidadPorEmpaque = ProductoEnEdicion.CantidadPorEmpaque ?? 1.00m,
+                UnidadMedida = descPresentacion
+            });
+        }
+
+        // Limpiar fila de edición y devolver foco a celda UPC
+        ProductoEnEdicion = null;
+        CantidadEnEdicion = null;
+        EsModoGranelActivo = false;
+        PrecioActualEdicion = 0m;
+        UpcInputValue = "";
+        StateHasChanged();
+
+        await EnfocarUpcAsync();
+    }
+
+    private async Task CancelarProductoEnEdicion()
+    {
+        ProductoEnEdicion = null;
+        CantidadEnEdicion = null;
+        EsModoGranelActivo = false;
+        PrecioActualEdicion = 0m;
+        UpcInputValue = "";
+        StateHasChanged();
+
+        await EnfocarUpcAsync();
+    }
+
+    private async Task EnfocarUpcAsync()
+    {
+        try
+        {
+            await Task.Delay(50);
+            await inputUpcRef.FocusAsync();
+        }
+        catch { }
+    }
+
+    // =========================================================================
+    // MODIFICACIÓN Y ELIMINACIÓN EN CARRITO
+    // =========================================================================
+
+    private void ModificarCantidad(CartItemDto item, decimal cambio)
+    {
+        decimal nuevaCantidad = item.Cantidad + cambio;
+        if (nuevaCantidad <= 0)
+        {
+            Carrito.Remove(item);
+        }
+        else
+        {
+            decimal factorItem = (item.EsGranel && item.CantidadPorEmpaque > 1) ? item.CantidadPorEmpaque : 1m;
+            decimal nuevoBaseItem = nuevaCantidad / factorItem;
+
+            decimal otroStockBaseEnCarrito = Carrito
+                .Where(i => i.IdProducto == item.IdProducto && i != item)
+                .Sum(i => i.CantidadBaseStock);
+
+            decimal totalBaseRequerido = otroStockBaseEnCarrito + nuevoBaseItem;
+
+            if (cambio > 0 && totalBaseRequerido > item.StockDisponible)
+            {
+                MostrarAlerta($"No hay más existencias disponibles para '{item.Nombre}' (Disponible: {item.StockDisponible:G29} unidades base).", esError: true);
+                return;
+            }
+            item.Cantidad = nuevaCantidad;
+        }
+    }
+
+    private async Task EliminarDelCarrito(CartItemDto item)
+    {
+        Carrito.Remove(item);
+        await EnfocarUpcAsync();
+    }
+
+    // =========================================================================
+    // COBRO Y PROCESAMIENTO (F10)
+    // =========================================================================
+
+    private async Task AbrirCobro()
+    {
+        if (!Carrito.Any()) return;
+        await CargarTurnoCaja();
+        if (CorteActivo == null)
+        {
+            AbrirModalAperturaTurno("Debe abrir un turno de caja indicando el fondo inicial antes de realizar cobros.");
+            return;
+        }
+        isPaymentOpen = true;
+    }
+
+    private async Task ProcesarCobro((string Metodo, decimal PagoCon) cobro)
+    {
+        isProcessingPayment = true;
+        try
+        {
+            int idUsuario = AuthService.CurrentUser?.IdUsuario ?? 1;
+
+            var result = await PosService.RegistrarVentaAsync(
+                SelectedClienteId,
+                idUsuario,
+                TipoComprobante,
+                cobro.Metodo,
+                cobro.PagoCon,
+                Carrito.ToList());
+
+            if (result.Success && result.Venta != null)
+            {
+                UltimaVentaRegistrada = result.Venta;
+                isPaymentOpen = false;
+
+                // Limpiar inmediatamente el carrito y la fila de captura al finalizar la venta
+                Carrito.Clear();
+                ProductoEnEdicion = null;
+                CantidadEnEdicion = null;
+                UpcInputValue = "";
+
+                // Si es Ticket de venta retail rápida, abrir ticket térmico.
+                // Si es Factura, CCF (03), Nota de Remisión, Crédito, Débito, etc., abrir Formato Carta Oficial (PDF / Impresora Carta)
+                bool esTicketRetail = TipoComprobante.Equals("Ticket", StringComparison.OrdinalIgnoreCase);
+                if (esTicketRetail)
+                {
+                    isTicketOpen = true;
+                }
+                else
+                {
+                    isInvoiceLetterOpen = true;
+                }
+
+                // Actualizar historial y turno
+                await CargarCatalogos();
+                await CargarTurnoCaja();
+            }
+            else
+            {
+                MostrarAlerta(result.Message, esError: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            MostrarAlerta($"Error inesperado al procesar cobro: {ex.Message}", esError: true);
+        }
+        finally
+        {
+            isProcessingPayment = false;
+        }
+    }
+
+    private void AbrirDocumentoCarta(Venta venta)
+    {
+        UltimaVentaRegistrada = venta;
+        isTicketOpen = false;
+        isInvoiceLetterOpen = true;
+        StateHasChanged();
+    }
+
+    private void AbrirTicketTermico(Venta venta)
+    {
+        UltimaVentaRegistrada = venta;
+        isInvoiceLetterOpen = false;
+        isTicketOpen = true;
+        StateHasChanged();
+    }
+
+    private async Task NuevaVenta()
+    {
+        Carrito.Clear();
+        SelectedClienteId = 1;
+        ProductoEnEdicion = null;
+        CantidadEnEdicion = null;
+        UpcInputValue = "";
+        isTicketOpen = false;
+        isInvoiceLetterOpen = false;
+        StateHasChanged();
+
+        await EnfocarUpcAsync();
+    }
+
+    // =========================================================================
+    // ACCIONES DE BARRA LATERAL (CORTES, REIMPRESIONES, RETIROS)
+    // =========================================================================
+
+    private void AbrirModalAperturaTurno(string? motivo = null)
+    {
+        MensajeAperturaTurnoContexto = motivo;
+        MontoFondoInicialApertura = 50.00m;
+        isAperturaTurnoModalOpen = true;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmarAperturaTurno()
+    {
+        if (MontoFondoInicialApertura < 0)
+        {
+            MostrarAlerta("El fondo inicial no puede ser negativo.", esError: true);
+            return;
+        }
+
+        isOpeningTurno = true;
+        StateHasChanged();
+        try
+        {
+            int idUsuario = AuthService.CurrentUser?.IdUsuario ?? 1;
+            var result = await CashRegisterService.AbrirCajaAsync(idUsuario, MontoFondoInicialApertura);
+            if (result.Success)
+            {
+                await CargarTurnoCaja();
+                isAperturaTurnoModalOpen = false;
+                MensajeAperturaTurnoContexto = null;
+                MostrarAlerta($"Turno de caja iniciado exitosamente con un fondo de ${MontoFondoInicialApertura:F2}.", esError: false);
+                await EnfocarUpcAsync();
+            }
+            else
+            {
+                MostrarAlerta(result.Message, esError: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            MostrarAlerta($"Error al abrir turno: {ex.Message}", esError: true);
+        }
+        finally
+        {
+            isOpeningTurno = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SolicitarAutorizacion(string titulo, string operacion, string badgeColor, Func<Task> accion)
+    {
+        SupervisorAuthTitulo = titulo;
+        SupervisorAuthOperacion = operacion;
+        SupervisorAuthBadgeColor = badgeColor;
+        AccionPendienteAutorizacion = accion;
+        isSupervisorAuthModalOpen = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnSupervisorAutorizado(Usuario supervisor)
+    {
+        SupervisorQueAutorizo = supervisor;
+        if (AccionPendienteAutorizacion != null)
+        {
+            var accion = AccionPendienteAutorizacion;
+            AccionPendienteAutorizacion = null;
+            await accion();
+        }
+    }
+
+    private Task AbrirCorteX()
+    {
+        return SolicitarAutorizacion("Autorización para Corte X (Parcial)", "Corte X - Arqueo Parcial", "bg-success", async () =>
+        {
+            await CargarTurnoCaja();
+            if (CorteActivo == null)
+            {
+                AbrirModalAperturaTurno("No se puede generar el Corte X (Arqueo Parcial) porque no hay un turno de caja abierto. Ingrese el fondo inicial para abrir el turno.");
+                return;
+            }
+            TipoCorteSeleccionado = "CORTE X";
+            isArqueoModalOpen = true;
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private Task AbrirCorteZ()
+    {
+        return SolicitarAutorizacion("Autorización para Corte Z (Cierre de Turno)", "Corte Z - Cierre Definitivo", "bg-danger", async () =>
+        {
+            await CargarTurnoCaja();
+            if (CorteActivo == null)
+            {
+                AbrirModalAperturaTurno("No se puede generar el Corte Z (Cierre definitivo) porque no hay un turno de caja abierto.");
+                return;
+            }
+            TipoCorteSeleccionado = "CORTE Z";
+            isArqueoModalOpen = true;
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private void AbrirTicketCorte(ResumenCorteDto resumen)
+    {
+        ResumenCorteSeleccionado = resumen;
+        isCorteTicketModalOpen = true;
+        StateHasChanged();
+    }
+
+    private async Task AbrirReimpresion()
+    {
+        VentasRecientes = await PosService.GetVentasAsync(DateTime.Today);
+        isReimpresionModalOpen = true;
+    }
+
+    private void ReimprimirVenta(Venta v)
+    {
+        UltimaVentaRegistrada = v;
+        isReimpresionModalOpen = false;
+        isTicketOpen = true;
+    }
+
+    private Task AbrirRetiro()
+    {
+        return SolicitarAutorizacion("Autorización para Retiro de Efectivo", "Retiro de Efectivo de Caja", "bg-warning text-dark", () =>
+        {
+            TipoOperacionCaja = "Retiro";
+            MontoOperacionCaja = 0;
+            MotivoOperacionCaja = "";
+            isCajaOperacionModalOpen = true;
+            InvokeAsync(StateHasChanged);
+            return Task.CompletedTask;
+        });
+    }
+
+    private Task AbrirGasto()
+    {
+        return SolicitarAutorizacion("Autorización para Gasto de Caja", "Gasto Menor / Salida de Efectivo", "bg-secondary", () =>
+        {
+            TipoOperacionCaja = "Gasto";
+            MontoOperacionCaja = 0;
+            MotivoOperacionCaja = "";
+            isCajaOperacionModalOpen = true;
+            InvokeAsync(StateHasChanged);
+            return Task.CompletedTask;
+        });
+    }
+
+    private async Task AbrirDevolucion()
+    {
+        VentasRecientes = await PosService.GetVentasAsync(DateTime.Today);
+        BusquedaDevolucion = "";
+        isDevolucionModalOpen = true;
+    }
+
+    private void AbrirDetalleParaDevolucion(Venta v)
+    {
+        VentaParaDevolucion = v;
+        isSaleDetailOpen = true;
+    }
+
+    private async Task OnVentaAnuladaExito()
+    {
+        MostrarAlerta($"Venta #{VentaParaDevolucion?.NumComprobante} anulada con éxito y productos devueltos a inventario.", esError: false);
+        VentasRecientes = await PosService.GetVentasAsync(DateTime.Today);
+        await CargarTurnoCaja();
+        StateHasChanged();
+    }
+
+    private async Task ConfirmarOperacionCaja()
+    {
+        if (MontoOperacionCaja <= 0)
+        {
+            MostrarAlerta("El monto debe ser mayor a cero.", esError: true);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(MotivoOperacionCaja))
+        {
+            MostrarAlerta("Debe ingresar un motivo o justificación.", esError: true);
+            return;
+        }
+
+        string motivoAudit = MotivoOperacionCaja.Trim();
+        if (SupervisorQueAutorizo != null)
+        {
+            motivoAudit += $" (Autorizado por {SupervisorQueAutorizo.Nombre})";
+        }
+
+        int idUsuario = AuthService.CurrentUser?.IdUsuario ?? 1;
+        var res = await CashRegisterService.RegistrarMovimientoCajaAsync(
+            idUsuario, TipoOperacionCaja, MontoOperacionCaja, motivoAudit, CorteActivo?.IdCorte);
+
+        if (res.Success && res.Movimiento != null)
+        {
+            var movGuardado = res.Movimiento;
+            string nombreCajero = AuthService.CurrentUser?.Nombre ?? "Cajero";
+            string? nombreSup = SupervisorQueAutorizo?.Nombre;
+
+            UltimoMovimientoParaImprimir = movGuardado;
+            CajeroUltimoMovimiento = nombreCajero;
+            SupervisorUltimoMovimiento = nombreSup;
+
+            if (ImprimirComprobanteOperacionCaja)
+            {
+                try
+                {
+                    configuracionNegocioPos ??= await SettingsService.GetConfiguracionAsync();
+                    bool modoDirecto = configuracionNegocioPos?.ImpresionDirecta ?? true;
+
+                    if (modoDirecto)
+                    {
+                        var printRes = await PrintService.PrintMovimientoCajaDirectAsync(movGuardado, nombreCajero, nombreSup, configuracionNegocioPos);
+                        if (!printRes.Success)
+                        {
+                            // Fallback al diálogo JS si la impresora local directa falló
+                            StateHasChanged();
+                            await Task.Delay(150);
+                            await PrintService.PrintMovimientoCajaAsync(JSRuntime, "movimiento-caja-receipt");
+                        }
+                    }
+                    else
+                    {
+                        StateHasChanged();
+                        await Task.Delay(150);
+                        await PrintService.PrintMovimientoCajaAsync(JSRuntime, "movimiento-caja-receipt");
+                    }
+                }
+                catch (Exception pEx)
+                {
+                    Console.WriteLine($"Aviso al imprimir comprobante de {TipoOperacionCaja}: {pEx.Message}");
+                }
+            }
+
+            isCajaOperacionModalOpen = false;
+            MostrarAlerta($"¡{res.Message} Comprobante emitido con éxito!", esError: false);
+            await CargarTurnoCaja();
+        }
+        else if (res.Success)
+        {
+            isCajaOperacionModalOpen = false;
+            MostrarAlerta(res.Message, esError: false);
+            await CargarTurnoCaja();
+        }
+        else
+        {
+            MostrarAlerta(res.Message, esError: true);
+        }
+    }
+
+    private void AbrirModalMerma()
+    {
+        if (!Carrito.Any())
+        {
+            MostrarAlerta("Agregue al carrito los productos que desea dar de baja como merma o salida interna.", esError: true);
+            return;
+        }
+        isMermaModalOpen = true;
+    }
+
+    private async Task OnMermaRegistradaExito((bool Success, string Message) resultado)
+    {
+        Carrito.Clear();
+        ProductoEnEdicion = null;
+        CantidadEnEdicion = null;
+        UpcInputValue = "";
+        MostrarAlerta(resultado.Message, esError: false);
+        await EnfocarUpcAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OnClienteCreado(Cliente c)
+    {
+        Clientes.Add(c);
+        SelectedClienteId = c.IdCliente;
+    }
+
+    private void IrAlPanelErp()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    private void CerrarSesion()
+    {
+        AuthService.Logout();
+        Navigation.NavigateTo("/");
+    }
+
+    private void AbrirContingencia()
+    {
+        isContingencyModalOpen = true;
+    }
+
+    private void AbrirModalGaveta()
+    {
+        isCashDrawerModalOpen = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnGavetaAbierta()
+    {
+        MostrarAlerta("Gaveta de dinero abierta y registrada en auditoría de caja.", esError: false);
+    }
+
+    private async Task VerificarEstadoContingencia()
+    {
+        if (!isDteHabilitado) return;
+
+        try
+        {
+            var resp = await FelSvApiService.ConsultarContingenciaActivaAsync();
+            if (resp != null)
+            {
+                isContingencyActive = resp.Activa;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch
+        {
+            // FelSv API offline o no configurado aún
+        }
+    }
+
+    private async Task OnContingencyStatusChanged(bool active)
+    {
+        if (isContingencyActive != active)
+        {
+            isContingencyActive = active;
+            if (active)
+            {
+                MostrarAlerta("Modo Contingencia MH Activado: las ventas generarán DTE con estado 'Contingencia_Pendiente'.", esError: false);
+            }
+            else
+            {
+                MostrarAlerta("Modo Contingencia Finalizado: facturación electrónica normal en línea restablecida.", esError: false);
+            }
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+}

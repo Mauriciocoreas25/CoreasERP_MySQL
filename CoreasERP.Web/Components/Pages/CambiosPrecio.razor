@@ -1,0 +1,790 @@
+@page "/cambios-precio"
+@inject IProductService ProductService
+@inject ICategoryService CategoryService
+@inject IPriceChangeService PriceChangeService
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1">Ajustes & Cambios de Precios</h4>
+        <p class="text-muted small mb-0">Revisión de costos modificados por compras y actualización de precios al público</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" @onclick="RefrescarTodo">Refrescar</button>
+        <button class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1"
+                disabled="@(!ListaPendientes.Any() && !ListaHistorial.Any())"
+                @onclick="AbrirModalImpresionGeneral">
+            <span>Imprimir Etiquetas</span>
+        </button>
+        @if (VistaActual == "catalogo")
+        {
+            <button class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="GuardarCambiosCatalogo" disabled="@(!ProductosModificados.Any() || isSaving)">
+                @if (isSaving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                    <span>Guardando...</span>
+                }
+                else
+                {
+                    <span>Guardar Cambios (@ProductosModificados.Count)</span>
+                }
+            </button>
+        }
+        else if (VistaActual == "pendientes" && ListaPendientes.Any())
+        {
+            <button class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="AplicarTodosLosPendientes" disabled="@isSaving">
+                @if (isSaving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                    <span>Aplicando...</span>
+                }
+                else
+                {
+                    <span>Aplicar Todos los Cambios (@ListaPendientes.Count)</span>
+                }
+            </button>
+        }
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(FeedbackMessage))
+{
+    <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small mb-3">
+        @FeedbackMessage
+        <button type="button" class="btn-close py-2" @onclick="() => FeedbackMessage = null"></button>
+    </div>
+}
+
+<!-- Pestañas de Navegación entre Cambios por Compras, Catálogo y Reimpresión -->
+<div class="d-flex gap-2 mb-3 border-bottom pb-2">
+    <button type="button" 
+            class="btn btn-sm @(VistaActual == "pendientes" ? "btn-success fw-bold text-white" : "btn-light border text-muted") position-relative px-3"
+            style="@(VistaActual == "pendientes" ? "background-color: #15803d; border-color: #15803d;" : "")"
+            @onclick="VerPendientes">
+        Modificaciones Detectadas en Compras
+        @if (TotalPendientes > 0)
+        {
+            <span class="badge rounded-pill bg-danger ms-2" style="font-size: 11px;">
+                @TotalPendientes pendientes
+            </span>
+        }
+        else
+        {
+            <span class="badge rounded-pill bg-success ms-2" style="font-size: 11px;">
+                0
+            </span>
+        }
+    </button>
+    <button type="button" 
+            class="btn btn-sm @(VistaActual == "catalogo" ? "btn-success fw-bold text-white" : "btn-light border text-muted") px-3"
+            style="@(VistaActual == "catalogo" ? "background-color: #15803d; border-color: #15803d;" : "")"
+            @onclick="VerCatalogo">
+        Catálogo General de Precios
+    </button>
+    <button type="button" 
+            class="btn btn-sm @(VistaActual == "historial" ? "btn-success fw-bold text-white" : "btn-light border text-muted") px-3"
+            style="@(VistaActual == "historial" ? "background-color: #15803d; border-color: #15803d;" : "")"
+            @onclick="VerHistorial">
+        Historial & Reimpresión
+        @if (ListaHistorial.Any())
+        {
+            <span class="badge rounded-pill bg-secondary ms-1" style="font-size: 11px;">
+                @ListaHistorial.Count
+            </span>
+        }
+    </button>
+</div>
+
+@if (VistaActual == "pendientes")
+{
+    <!-- ========================================================================= -->
+    <!-- VISTA 1: CAMBIOS DE PRECIOS DETECTADOS POR COMPRAS                         -->
+    <!-- ========================================================================= -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <div>
+                    <h6 class="mb-0 fw-bold">Precios de Costo Modificados en Compras Recientes</h6>
+                    <div class="small text-muted" style="font-size: 11px;">
+                        Estos artículos llegaron en facturas de proveedores con un costo diferente al catálogo. Revise el precio sugerido y aplíquelo.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-success"></div>
+                    <div class="mt-2 text-muted small">Cargando modificaciones de compras...</div>
+                </div>
+            }
+            else if (!ListaPendientes.Any())
+            {
+                <div class="text-center py-5 text-muted">
+                    <div class="mb-2 text-muted">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+                    </div>
+                    <div class="fw-bold">No hay cambios de precios pendientes</div>
+                    <div class="small mt-1 text-muted">
+                        Cuando registre una compra donde el proveedor modifique el costo de un producto, aparecerá automáticamente aquí.
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 small">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Fecha Compra</th>
+                                <th>Factura Origen</th>
+                                <th>Producto / SKU</th>
+                                <th class="text-center" style="width: 170px;">Costo Anterior &rarr; Nuevo</th>
+                                <th class="text-center" style="width: 140px;">Margen %</th>
+                                <th class="text-center" style="width: 180px;">Precio Venta Sugerido</th>
+                                <th class="text-center" style="width: 170px;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var c in ListaPendientes)
+                            {
+                                <tr>
+                                    <td class="text-muted">@c.FechaHora.ToString("dd/MM/yyyy hh:mm tt")</td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border font-monospace">
+                                            @(c.Compra?.NumFactura ?? c.Motivo)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="fw-bold text-dark">@(c.Producto?.Nombre ?? "Artículo")</div>
+                                        <div class="small text-muted font-monospace">@(c.Producto?.Codigo)</div>
+                                    </td>
+                                    <td class="text-center">
+                                        <div class="d-flex align-items-center justify-content-center gap-1">
+                                            <span class="text-muted text-decoration-line-through small">
+                                                $@c.CostoAnterior.ToString("F2")
+                                            </span>
+                                            <span>&rarr;</span>
+                                            <span class="badge bg-warning bg-opacity-25 text-dark fw-bold border border-warning">
+                                                $@c.CostoNuevo.ToString("F2")
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td class="text-center fw-bold text-success">
+                                        @c.MargenPorcentaje.ToString("0.##")%
+                                    </td>
+                                    <td class="text-center">
+                                        <div class="input-group input-group-sm mx-auto" style="max-width: 130px;">
+                                            <span class="input-group-text bg-white">$</span>
+                                            <input type="number" step="0.01" min="0" class="form-control text-end fw-bold text-success"
+                                                   @bind="c.PrecioVentaNuevo" />
+                                        </div>
+                                        <div class="small text-muted" style="font-size: 10px;">
+                                            Anterior: $@c.PrecioVentaAnterior.ToString("F2")
+                                        </div>
+                                    </td>
+                                    <td class="text-center">
+                                        <div class="d-inline-flex gap-1" role="group">
+                                            <button type="button" class="btn btn-success btn-sm px-2"
+                                                    style="background-color: #15803d; border-color: #15803d;"
+                                                    title="Aprobar y aplicar nuevo precio"
+                                                    @onclick="() => AplicarCambio(c)">
+                                                Aplicar
+                                            </button>
+                                            <button type="button" class="btn btn-outline-secondary btn-sm px-2"
+                                                    title="Previsualizar e imprimir etiqueta o banderín"
+                                                    @onclick="() => ImprimirIndividual(c)">
+                                                Imprimir
+                                            </button>
+                                            <button type="button" class="btn btn-outline-danger btn-sm px-2"
+                                                    title="Descartar modificación"
+                                                    @onclick="() => DescartarCambio(c)">
+                                                Descartar
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+else if (VistaActual == "catalogo")
+{
+    <!-- ========================================================================= -->
+    <!-- VISTA 2: CATÁLOGO GENERAL DE PRECIOS                                      -->
+    <!-- ========================================================================= -->
+    <!-- Barra de Filtro y Ajuste Rápido Masivo -->
+    <div class="card border-0 shadow-sm p-3 mb-4 bg-white rounded-3">
+        <div class="row g-2 align-items-center">
+            <div class="col-12 col-md-5">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-white text-muted">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    </span>
+                    <input type="text" class="form-control" placeholder="Buscar por nombre o código..." 
+                           @bind="SearchTerm" @bind:event="oninput" @onkeyup="FiltrarCatalogo" />
+                    @if (!string.IsNullOrEmpty(SearchTerm))
+                    {
+                        <button class="btn btn-outline-secondary" type="button" @onclick="LimpiarBusqueda">&times;</button>
+                    }
+                </div>
+            </div>
+
+            <div class="col-12 col-md-4">
+                <select class="form-select form-select-sm" @bind="SelectedCategoryId" @bind:after="FiltrarCatalogo">
+                    <option value="0">-- Todas las Categorías --</option>
+                    @foreach (var cat in Categorias)
+                    {
+                        <option value="@cat.IdCategoria">@cat.Nombre</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-12 col-md-3 text-md-end">
+                <span class="badge bg-light text-secondary border small">
+                    Modificados sin guardar: <strong class="text-success">@ProductosModificados.Count</strong>
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla de Edición Directa de Precios -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-body p-0">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-success"></div>
+                    <div class="mt-2 text-muted small">Cargando artículos...</div>
+                </div>
+            }
+            else if (!ProductosFiltrados.Any())
+            {
+                <div class="text-center py-5 text-muted">
+                    <div class="mb-2 text-muted">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                    </div>
+                    <div>No se encontraron productos coincidentes</div>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 small">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Código</th>
+                                <th>Nombre del Producto</th>
+                                <th>Categoría</th>
+                                <th class="text-center" style="width: 130px;">Precio Compra ($)</th>
+                                <th class="text-center" style="width: 130px;">Precio Venta ($)</th>
+                                <th class="text-center" style="width: 140px;">Precio Granel/Caja ($)</th>
+                                <th class="text-center" style="width: 120px;">Margen Estimado</th>
+                                <th class="text-center" style="width: 80px;">Stock</th>
+                                <th class="text-center" style="width: 90px;">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in ProductosFiltrados)
+                            {
+                                var esModificado = ProductosModificados.ContainsKey(item.Producto.IdProducto);
+                                <tr class="@(esModificado ? "table-warning" : "")">
+                                    <td class="font-monospace text-muted">@item.Producto.Codigo</td>
+                                    <td class="fw-semibold">
+                                        <div>@item.Producto.Nombre</div>
+                                        @if (item.Producto.EsGranel)
+                                        {
+                                            <span class="badge bg-info bg-opacity-10 text-info-emphasis border border-info" style="font-size: 9px;">
+                                                @(item.Producto.UnidadMedida ?? "Granel")
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border">
+                                            @(item.Producto.Categoria?.Nombre ?? "-")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">$</span>
+                                            <input type="number" step="0.01" min="0" class="form-control text-end" 
+                                                   @bind="item.PrecioCompraEdit" 
+                                                   @bind:after="() => OnPrecioChanged(item)" />
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">$</span>
+                                            <input type="number" step="0.01" min="0" class="form-control text-end fw-bold text-primary" 
+                                                   @bind="item.PrecioVentaEdit" 
+                                                   @bind:after="() => OnPrecioChanged(item)" />
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">$</span>
+                                            <input type="number" step="0.01" min="0" class="form-control text-end fw-bold text-success" 
+                                                   placeholder="Opcional"
+                                                   @bind="item.PrecioGranelEdit" 
+                                                   @bind:after="() => OnPrecioChanged(item)" />
+                                        </div>
+                                    </td>
+                                    <td class="text-center fw-bold @(item.MargenEstimado >= 20 ? "text-success" : (item.MargenEstimado > 0 ? "text-warning" : "text-danger"))">
+                                        <div>@item.MargenEstimado.ToString("F1")%</div>
+                                        @if (item.MargenGranelEstimado.HasValue)
+                                        {
+                                            <div class="text-muted" style="font-size: 9.5px;" title="Margen de presentación caja/granel">
+                                                G: @item.MargenGranelEstimado.Value.ToString("F1")%
+                                            </div>
+                                        }
+                                    </td>
+                                    <td class="text-center text-muted">@item.Producto.Stock.ToString("G29")</td>
+                                    <td class="text-center">
+                                        @if (esModificado)
+                                        {
+                                            <span class="badge bg-warning text-dark">Modificado</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-light text-muted border">Actual</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+else if (VistaActual == "historial")
+{
+    <!-- ========================================================================= -->
+    <!-- VISTA 3: HISTORIAL DE CAMBIOS DE PRECIO & REIMPRESIÓN                      -->
+    <!-- ========================================================================= -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <div>
+                    <h6 class="mb-0 fw-bold">Historial de Cambios de Precio Aplicados</h6>
+                    <div class="small text-muted" style="font-size: 11px;">
+                        Registro histórico de precios modificados. Puede reimprimir flejes de estante o banderines de rebaja cuando lo necesite.
+                    </div>
+                </div>
+            </div>
+            @if (ListaHistorial.Any())
+            {
+                <button type="button" class="btn btn-outline-secondary btn-sm fw-semibold"
+                        @onclick="() => ImprimirLote(ListaHistorial)">
+                    Reimprimir Todo el Historial (@ListaHistorial.Count)
+                </button>
+            }
+        </div>
+
+        <div class="card-body p-0">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-success"></div>
+                    <div class="mt-2 text-muted small">Cargando historial...</div>
+                </div>
+            }
+            else if (!ListaHistorial.Any())
+            {
+                <div class="text-center py-5 text-muted">
+                    <div class="mb-2 text-muted">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </div>
+                    <div class="fw-bold">No hay historial de cambios de precios aún</div>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 small">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Fecha Aplicación</th>
+                                <th>Motivo / Factura</th>
+                                <th>Producto / SKU</th>
+                                <th class="text-center">Costo Ant. &rarr; Nuevo</th>
+                                <th class="text-center">Precio Ant. &rarr; Nuevo</th>
+                                <th class="text-center">Variación & Formato</th>
+                                <th class="text-center" style="width: 120px;">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var h in ListaHistorial)
+                            {
+                                decimal diff = h.PrecioVentaAnterior - h.PrecioVentaNuevo;
+                                decimal pct = h.PrecioVentaAnterior > 0 ? (diff / h.PrecioVentaAnterior) * 100m : 0;
+                                bool esRebajaWalmart = (pct >= 10m && h.PrecioVentaNuevo < h.PrecioVentaAnterior);
+
+                                <tr>
+                                    <td class="text-muted">@(h.FechaAplicacion?.ToString("dd/MM/yyyy hh:mm tt") ?? h.FechaHora.ToString("dd/MM/yyyy hh:mm tt"))</td>
+                                    <td>
+                                        <span class="badge bg-light text-secondary border font-monospace">
+                                            @(h.Compra?.NumFactura ?? h.Motivo)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="fw-bold text-dark">@(h.Producto?.Nombre ?? "Artículo")</div>
+                                        <div class="small text-muted font-monospace">@(h.Producto?.Codigo)</div>
+                                    </td>
+                                    <td class="text-center text-muted">
+                                        $@h.CostoAnterior.ToString("F2") &rarr; $@h.CostoNuevo.ToString("F2")
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="text-muted text-decoration-line-through me-1">$@h.PrecioVentaAnterior.ToString("F2")</span>
+                                        &rarr;
+                                        <strong class="text-dark ms-1">$@h.PrecioVentaNuevo.ToString("F2")</strong>
+                                    </td>
+                                    <td class="text-center">
+                                        @if (esRebajaWalmart)
+                                        {
+                                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger">
+                                                Banderín (-@pct.ToString("0")%)
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-light text-dark border">
+                                                Fleje de Estante
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="text-center">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm py-1 px-2"
+                                                title="Reimprimir etiqueta para este producto"
+                                                @onclick="() => ImprimirIndividual(h)">
+                                            Reimprimir
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- Diálogo Modal de Previsualización e Impresión de Etiquetas -->
+<PriceTagPrintDialog @bind-IsOpen="isPrintDialogOpen" ItemsParaImprimir="ItemsParaImprimir" />
+
+@code {
+    private string VistaActual = "pendientes"; // "pendientes", "catalogo" o "historial"
+    private int TotalPendientes = 0;
+    private List<CambioPrecio> ListaPendientes = new();
+    private List<CambioPrecio> ListaHistorial = new();
+
+    private bool isPrintDialogOpen = false;
+    private List<CambioPrecio> ItemsParaImprimir = new();
+
+    private class PriceItemViewModel
+    {
+        public Producto Producto { get; set; } = null!;
+        public decimal PrecioCompraEdit { get; set; }
+        public decimal PrecioVentaEdit { get; set; }
+        public decimal? PrecioGranelEdit { get; set; }
+
+        public decimal MargenEstimado => PrecioCompraEdit > 0 
+            ? Math.Round(((PrecioVentaEdit - PrecioCompraEdit) / PrecioCompraEdit) * 100m, 2) 
+            : 0m;
+
+        public decimal CostoGranelEfectivo
+        {
+            get
+            {
+                if (Producto.CostoGranel.HasValue && Producto.CostoGranel.Value > 0)
+                    return Producto.CostoGranel.Value;
+                var cant = Producto.CantidadPorEmpaque.GetValueOrDefault(1.00m);
+                if (cant > 0 && PrecioCompraEdit > 0)
+                    return Math.Round(PrecioCompraEdit / cant, 4);
+                return PrecioCompraEdit;
+            }
+        }
+
+        public decimal? MargenGranelEstimado
+        {
+            get
+            {
+                if (!PrecioGranelEdit.HasValue || PrecioGranelEdit.Value <= 0) return null;
+                var costo = CostoGranelEfectivo;
+                return costo > 0
+                    ? Math.Round(((PrecioGranelEdit.Value - costo) / costo) * 100m, 2)
+                    : null;
+            }
+        }
+    }
+
+    private List<PriceItemViewModel> TodosLosItems = new();
+    private List<PriceItemViewModel> ProductosFiltrados = new();
+    private Dictionary<int, PriceItemViewModel> ProductosModificados = new();
+    private List<Categoria> Categorias = new();
+
+    private string SearchTerm = "";
+    private int SelectedCategoryId = 0;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string? FeedbackMessage;
+    private bool isSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefrescarTodo();
+    }
+
+    private async Task RefrescarTodo()
+    {
+        isLoading = true;
+        try
+        {
+            Categorias = await CategoryService.GetAllAsync();
+            await CargarPendientes();
+            await CargarCatalogo();
+            await CargarHistorial();
+        }
+        catch (Exception ex)
+        {
+            FeedbackMessage = $"Error al cargar cambios de precio: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task VerPendientes()
+    {
+        await CambiarVista("pendientes");
+    }
+
+    private async Task VerCatalogo()
+    {
+        await CambiarVista("catalogo");
+    }
+
+    private async Task VerHistorial()
+    {
+        await CambiarVista("historial");
+    }
+
+    private async Task CambiarVista(string vista)
+    {
+        VistaActual = vista;
+        FeedbackMessage = null;
+        if (vista == "pendientes")
+        {
+            await CargarPendientes();
+        }
+        else if (vista == "catalogo")
+        {
+            await CargarCatalogo();
+        }
+        else if (vista == "historial")
+        {
+            await CargarHistorial();
+        }
+    }
+
+    private async Task CargarHistorial()
+    {
+        ListaHistorial = await PriceChangeService.GetAplicadosRecientesAsync();
+    }
+
+    private async Task CargarPendientes()
+    {
+        ListaPendientes = await PriceChangeService.GetPendientesAsync();
+        TotalPendientes = ListaPendientes.Count;
+        if (TotalPendientes == 0 && VistaActual == "pendientes")
+        {
+            // Si no hay pendientes, mostrar catálogo
+            // pero permitir al usuario ver la pestaña
+        }
+    }
+
+    private async Task CargarCatalogo()
+    {
+        var productos = await ProductService.GetAllAsync();
+        TodosLosItems = productos.Select(p => new PriceItemViewModel
+        {
+            Producto = p,
+            PrecioCompraEdit = p.PrecioCompra,
+            PrecioVentaEdit = p.PrecioVenta,
+            PrecioGranelEdit = p.PrecioGranel
+        }).ToList();
+
+        ProductosModificados.Clear();
+        FiltrarCatalogo();
+    }
+
+    private void FiltrarCatalogo()
+    {
+        ProductosFiltrados = TodosLosItems
+            .Where(i => i.Producto != null &&
+                        (SelectedCategoryId == 0 || i.Producto.IdCategoria == SelectedCategoryId) &&
+                        (string.IsNullOrWhiteSpace(SearchTerm) ||
+                         (!string.IsNullOrEmpty(i.Producto.Nombre) && i.Producto.Nombre.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase)) ||
+                         (!string.IsNullOrEmpty(i.Producto.Codigo) && i.Producto.Codigo.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase))))
+            .ToList();
+    }
+
+    private void LimpiarBusqueda()
+    {
+        SearchTerm = "";
+        FiltrarCatalogo();
+    }
+
+    private void OnPrecioChanged(PriceItemViewModel item)
+    {
+        if (item.PrecioCompraEdit != item.Producto.PrecioCompra || 
+            item.PrecioVentaEdit != item.Producto.PrecioVenta ||
+            item.PrecioGranelEdit != item.Producto.PrecioGranel)
+        {
+            ProductosModificados[item.Producto.IdProducto] = item;
+        }
+        else
+        {
+            ProductosModificados.Remove(item.Producto.IdProducto);
+        }
+    }
+
+    private async Task AplicarCambio(CambioPrecio c)
+    {
+        isSaving = true;
+        try
+        {
+            var res = await PriceChangeService.AplicarCambioAsync(c.IdCambioPrecio, c.PrecioVentaNuevo);
+            isSuccess = res.Success;
+            FeedbackMessage = res.Message;
+            if (res.Success)
+            {
+                // Disparar modal de impresión con el artículo aplicado
+                ItemsParaImprimir = new List<CambioPrecio> { c };
+                isPrintDialogOpen = true;
+
+                await CargarPendientes();
+                await CargarHistorial();
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DescartarCambio(CambioPrecio c)
+    {
+        var res = await PriceChangeService.DescartarCambioAsync(c.IdCambioPrecio);
+        isSuccess = res.Success;
+        FeedbackMessage = res.Message;
+        if (res.Success)
+        {
+            await CargarPendientes();
+        }
+    }
+
+    private async Task AplicarTodosLosPendientes()
+    {
+        isSaving = true;
+        try
+        {
+            var snapshot = ListaPendientes.ToList();
+            var res = await PriceChangeService.AplicarTodosPendientesAsync();
+            isSuccess = res.Success;
+            FeedbackMessage = res.Message;
+            if (res.Success)
+            {
+                // Disparar modal de impresión con todos los artículos aplicados
+                ItemsParaImprimir = snapshot;
+                isPrintDialogOpen = true;
+
+                await CargarPendientes();
+                await CargarHistorial();
+            }
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void ImprimirIndividual(CambioPrecio c)
+    {
+        ItemsParaImprimir = new List<CambioPrecio> { c };
+        isPrintDialogOpen = true;
+    }
+
+    private void ImprimirLote(List<CambioPrecio> items)
+    {
+        ItemsParaImprimir = items.ToList();
+        isPrintDialogOpen = true;
+    }
+
+    private void AbrirModalImpresionGeneral()
+    {
+        if (VistaActual == "pendientes" && ListaPendientes.Any())
+        {
+            ItemsParaImprimir = ListaPendientes.ToList();
+        }
+        else if (VistaActual == "historial" && ListaHistorial.Any())
+        {
+            ItemsParaImprimir = ListaHistorial.ToList();
+        }
+        else if (ListaPendientes.Any())
+        {
+            ItemsParaImprimir = ListaPendientes.ToList();
+        }
+        else if (ListaHistorial.Any())
+        {
+            ItemsParaImprimir = ListaHistorial.ToList();
+        }
+
+        if (ItemsParaImprimir.Any())
+        {
+            isPrintDialogOpen = true;
+        }
+    }
+
+    private async Task GuardarCambiosCatalogo()
+    {
+        if (!ProductosModificados.Any()) return;
+
+        isSaving = true;
+        FeedbackMessage = null;
+        int guardados = 0;
+
+        foreach (var mod in ProductosModificados.Values)
+        {
+            mod.Producto.PrecioCompra = mod.PrecioCompraEdit;
+            mod.Producto.PrecioVenta = mod.PrecioVentaEdit;
+            mod.Producto.PrecioGranel = mod.PrecioGranelEdit;
+            if (mod.PrecioGranelEdit.HasValue && mod.PrecioGranelEdit.Value > 0)
+            {
+                mod.Producto.EsGranel = true;
+                var cant = mod.Producto.CantidadPorEmpaque.GetValueOrDefault(1.00m);
+                if (cant > 1 && mod.PrecioCompraEdit > 0)
+                {
+                    mod.Producto.CostoGranel = Math.Round(mod.PrecioCompraEdit / cant, 4);
+                }
+            }
+
+            var res = await ProductService.SaveAsync(mod.Producto);
+            if (res.Success) guardados++;
+        }
+
+        isSaving = false;
+        isSuccess = true;
+        FeedbackMessage = $"¡Se actualizaron con éxito los precios de {guardados} productos en la base de datos!";
+        ProductosModificados.Clear();
+    }
+}

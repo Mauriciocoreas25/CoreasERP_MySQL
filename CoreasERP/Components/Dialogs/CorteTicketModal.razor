@@ -1,0 +1,359 @@
+@inject IPrintService PrintService
+@inject IJSRuntime JSRuntime
+@inject ISettingsService SettingsService
+
+@if (IsOpen && Resumen != null)
+{
+    <div class="modal-backdrop-custom" tabindex="-1" @onkeydown="HandleKeyDown" @onclick="Cerrar">
+        <div class="modal-content-custom" @onclick:stopPropagation="true" style="max-width: 480px; max-height: 94vh; display: flex; flex-direction: column;">
+            <!-- Barra Superior de Acciones -->
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center @(Resumen.TipoCorte == "CORTE Z" ? "bg-danger text-white" : "bg-dark text-white")">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                        <rect x="6" y="14" width="12" height="8"></rect>
+                    </svg>
+                    <div>
+                        <h6 class="mb-0 fw-bold text-white">Ticket de @Resumen.TipoCorte</h6>
+                        <small class="text-white-50">Vista previa para impresora térmica (80mm / 58mm)</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" @onclick="Cerrar" title="Cerrar [Esc]"></button>
+            </div>
+
+            <!-- Previsualización del Ticket Térmico con Scroll -->
+            <div class="p-3 bg-secondary bg-opacity-10" style="overflow-y: auto; flex: 1;">
+                <div id="corte-receipt" class="corte-container bg-white p-3 mx-auto shadow-sm"
+                     style="max-width: 320px; font-family: 'Courier New', Courier, monospace; font-size: 11px; color: #000; border: 1px solid #e2e8f0;">
+
+                    <!-- Encabezado -->
+                    <div class="text-center mb-2">
+                        <div class="fw-bold fs-6">@Resumen.NombreEmpresa.ToUpper()</div>
+                        <div class="fw-bold mt-1" style="font-size: 12px;">*** @Resumen.TipoCorte ***</div>
+                        <div class="small">@(Resumen.TipoCorte == "CORTE Z" ? "(CIERRE DEFINITIVO DE TURNO)" : "(ARQUEO PARCIAL DE CAJA)")</div>
+                    </div>
+
+                    <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
+
+                    <div style="font-size: 10.5px; line-height: 1.35;">
+                        <div class="d-flex justify-content-between">
+                            <span>TURNO #:</span>
+                            <span class="fw-bold font-monospace">CC-@Resumen.IdCorte.ToString("D5")</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>CAJERO:</span>
+                            <span class="fw-bold">@Resumen.NombreCajero</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>ESTAB/PUNTO:</span>
+                            <span>@Resumen.Sucursal / @Resumen.PuntoVenta</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>APERTURA:</span>
+                            <span>@Resumen.FechaApertura.ToString("dd/MM/yyyy hh:mm tt")</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>CORTE:</span>
+                            <span>@Resumen.FechaCorte.ToString("dd/MM/yyyy hh:mm tt")</span>
+                        </div>
+                    </div>
+
+                    <!-- 1. Desglose de Documentos Emitidos -->
+                    <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
+                    <div class="fw-bold text-center mb-1" style="font-size: 11px;">DOCUMENTOS EMITIDOS</div>
+                    <table style="width: 100%; font-size: 10px; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 1px dashed #000;">
+                                <th style="text-align: left; padding: 2px 0;">TIPO</th>
+                                <th style="text-align: center; padding: 2px 0;">CANT</th>
+                                <th style="text-align: right; padding: 2px 0;">TOTAL</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!Resumen.Documentos.Any())
+                            {
+                                <tr>
+                                    <td colspan="3" class="text-center text-muted py-1">Sin comprobantes emitidos</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var doc in Resumen.Documentos)
+                                {
+                                    <tr>
+                                        <td style="padding: 2px 0;">
+                                            @doc.TipoComprobante
+                                            @if (doc.EsInformativo)
+                                            {
+                                                <small class="fst-italic">(Inf)</small>
+                                            }
+                                        </td>
+                                        <td style="text-align: center; padding: 2px 0;">@doc.Cantidad</td>
+                                        <td style="text-align: right; padding: 2px 0; font-weight: bold;">$@doc.MontoTotal.ToString("F2")</td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+
+                    @if (Resumen.CantidadAnticipos > 0)
+                    {
+                        <div class="p-1 my-1 bg-light rounded" style="font-size: 9.5px; border-left: 2px solid #000;">
+                            <div class="fw-bold">DETALLE ANTICIPOS (PAGO MIXTO):</div>
+                            <div>Total Pedidos: $@Resumen.AnticiposTotalPedidos.ToString("F2")</div>
+                            <div>Entró Efectivo a Caja: +$@Resumen.AnticiposCobradoEfectivo.ToString("F2")</div>
+                            <div>Saldo remitido a CXC: $@Resumen.AnticiposSaldoCXC.ToString("F2")</div>
+                        </div>
+                    }
+
+                    @if (Resumen.CantidadCotizaciones > 0)
+                    {
+                        <div class="p-1 my-1 bg-light rounded" style="font-size: 9.5px; border-left: 2px solid #666;">
+                            <div class="fw-bold">COTIZACIONES (INFORMATIVO):</div>
+                            <div>@Resumen.CantidadCotizaciones cotizaciones generadas ($@Resumen.TotalCotizacionesMonto.ToString("F2")).</div>
+                            <div class="text-muted">No afectan inventario ni caja.</div>
+                        </div>
+                    }
+
+                    <!-- 2. Desglose de Formas de Pago -->
+                    <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
+                    <div class="fw-bold text-center mb-1" style="font-size: 11px;">FORMAS DE PAGO</div>
+                    <div style="font-size: 10.5px; line-height: 1.4;">
+                        <div class="d-flex justify-content-between">
+                            <span>Ventas Efectivo:</span>
+                            <span class="fw-bold">$@Resumen.TotalVentasEfectivo.ToString("F2")</span>
+                        </div>
+                        @if (Resumen.TotalVentasTarjetas > 0)
+                        {
+                            <div class="d-flex justify-content-between">
+                                <span>Tarjetas:</span>
+                                <span>$@Resumen.TotalVentasTarjetas.ToString("F2")</span>
+                            </div>
+                        }
+                        @if (Resumen.TotalVentasTransferencias > 0)
+                        {
+                            <div class="d-flex justify-content-between">
+                                <span>Transferencias:</span>
+                                <span>$@Resumen.TotalVentasTransferencias.ToString("F2")</span>
+                            </div>
+                        }
+                        @if (Resumen.TotalVentasCreditoCXC > 0)
+                        {
+                            <div class="d-flex justify-content-between">
+                                <span>Crédito / Saldo CXC:</span>
+                                <span>$@Resumen.TotalVentasCreditoCXC.ToString("F2")</span>
+                            </div>
+                        }
+                    </div>
+
+                    <!-- 3. Movimientos de Caja -->
+                    <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
+                    <div class="fw-bold text-center mb-1" style="font-size: 11px;">MOVIMIENTOS DE CAJA</div>
+                    <div style="font-size: 10.5px; line-height: 1.4;">
+                        <div class="d-flex justify-content-between">
+                            <span>Fondo Inicial:</span>
+                            <span>$@Resumen.FondoInicial.ToString("F2")</span>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>(+) Ventas Efectivo:</span>
+                            <span>+$@Resumen.TotalVentasEfectivo.ToString("F2")</span>
+                        </div>
+                        @if (Resumen.TotalAbonosEfectivo > 0)
+                        {
+                            <div class="d-flex justify-content-between">
+                                <span>(+) Abonos CXC Efectivo:</span>
+                                <span>+$@Resumen.TotalAbonosEfectivo.ToString("F2")</span>
+                            </div>
+                        }
+                        @if (Resumen.TotalIngresosExtras > 0)
+                        {
+                            <div class="d-flex justify-content-between">
+                                <span>(+) Ingresos Extras:</span>
+                                <span>+$@Resumen.TotalIngresosExtras.ToString("F2")</span>
+                            </div>
+                        }
+                        @if (Resumen.TotalRetiros > 0)
+                        {
+                            <div class="d-flex justify-content-between">
+                                <span>(-) Retiros de Efectivo:</span>
+                                <span>-$@Resumen.TotalRetiros.ToString("F2")</span>
+                            </div>
+                        }
+                        @if (Resumen.TotalGastos > 0)
+                        {
+                            <div class="d-flex justify-content-between">
+                                <span>(-) Gastos Menores:</span>
+                                <span>-$@Resumen.TotalGastos.ToString("F2")</span>
+                            </div>
+                        }
+                        @if (Resumen.TotalDevolucionesEfectivo > 0)
+                        {
+                            <div class="d-flex justify-content-between">
+                                <span>(-) Devoluciones (NC):</span>
+                                <span>-$@Resumen.TotalDevolucionesEfectivo.ToString("F2")</span>
+                            </div>
+                        }
+                    </div>
+
+                    <!-- 4. Balance de Efectivo en Gaveta -->
+                    <div style="border-top: 2px solid #000; margin: 6px 0;"></div>
+                    <div class="d-flex justify-content-between fw-bold" style="font-size: 12px;">
+                        <span>EFECTIVO ESPERADO:</span>
+                        <span>$@Resumen.EfectivoEsperado.ToString("F2")</span>
+                    </div>
+
+                    @if (Resumen.EfectivoContado.HasValue)
+                    {
+                        <div class="d-flex justify-content-between fw-bold mt-1" style="font-size: 12px;">
+                            <span>EFECTIVO CONTADO:</span>
+                            <span>$@Resumen.EfectivoContado.Value.ToString("F2")</span>
+                        </div>
+
+                        decimal diff = Resumen.Diferencia ?? 0m;
+                        <div class="d-flex justify-content-between fw-bold mt-1" style="font-size: 11px;">
+                            <span>DIFERENCIA:</span>
+                            @if (diff == 0m)
+                            {
+                                <span>$0.00 (CUADRADA)</span>
+                            }
+                            else if (diff > 0m)
+                            {
+                                <span>+$@diff.ToString("F2") (SOBRANTE)</span>
+                            }
+                            else
+                            {
+                                <span>-$@(Math.Abs(diff).ToString("F2")) (FALTANTE)</span>
+                            }
+                        </div>
+
+                        @if (Resumen.DesgloseFisico != null)
+                        {
+                            <div class="text-muted mt-1" style="font-size: 9px;">
+                                Contado: Billetes $@Resumen.DesgloseFisico.TotalBilletes.ToString("F2") | Monedas $@Resumen.DesgloseFisico.TotalMonedas.ToString("F2")
+                            </div>
+                        }
+                    }
+
+                    <!-- 5. Firmas -->
+                    <div style="border-top: 1px dashed #000; margin: 15px 0 10px 0;"></div>
+                    <div class="text-center my-3" style="font-size: 10px;">
+                        <div style="margin-bottom: 25px;">
+                            <div>_____________________________</div>
+                            <div class="fw-bold mt-1">FIRMA DEL CAJERO</div>
+                            <div class="text-muted small">@Resumen.NombreCajero</div>
+                        </div>
+
+                        <div>
+                            <div>_____________________________</div>
+                            <div class="fw-bold mt-1">FIRMA SUPERVISOR / AUDITOR</div>
+                        </div>
+                    </div>
+
+                    <div class="text-center text-muted small mt-2" style="font-size: 9px; border-top: 1px dashed #000; padding-top: 4px;">
+                        Software: Coreas ERP Local · Control de Caja
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pie de Botones -->
+            <div class="p-3 border-top bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm px-3" @onclick="Cerrar">
+                    Cerrar [Esc]
+                </button>
+
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-light btn-sm border text-secondary" @onclick="ImprimirConDialogo" title="Abrir diálogo de impresión de Windows o guardar PDF">
+                        Diálogo Windows / PDF
+                    </button>
+
+                    <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm d-flex align-items-center gap-2"
+                            style="background-color: #15803d; border-color: #15803d;"
+                            @onclick="ImprimirTermico" disabled="@isPrinting">
+                        @if (isPrinting)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                            <span>Imprimiendo...</span>
+                        }
+                        else
+                        {
+                            <span>Imprimir Ticket</span>
+                            <span class="badge bg-white text-success" style="font-size: 10px;">Enter / F10</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public ResumenCorteDto? Resumen { get; set; }
+
+    private ConfiguracionNegocio? configNegocio;
+    private bool isPrinting = false;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && Resumen != null)
+        {
+            try
+            {
+                configNegocio = await SettingsService.GetConfiguracionAsync();
+            }
+            catch { }
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == "F10")
+        {
+            await ImprimirTermico();
+        }
+        else if (e.Key == "Escape")
+        {
+            await Cerrar();
+        }
+    }
+
+    private async Task ImprimirTermico()
+    {
+        if (Resumen == null || isPrinting) return;
+        isPrinting = true;
+        try
+        {
+            bool modoDirecto = configNegocio?.ImpresionDirecta ?? true;
+            if (modoDirecto)
+            {
+                await PrintService.PrintCorteDirectAsync(Resumen, configNegocio);
+            }
+            else
+            {
+                await PrintService.PrintCorteAsync(JSRuntime, "corte-receipt");
+            }
+        }
+        catch
+        {
+            await PrintService.PrintCorteAsync(JSRuntime, "corte-receipt");
+        }
+        finally
+        {
+            isPrinting = false;
+        }
+    }
+
+    private async Task ImprimirConDialogo()
+    {
+        if (Resumen == null) return;
+        await PrintService.PrintCorteAsync(JSRuntime, "corte-receipt");
+    }
+
+    private async Task Cerrar()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

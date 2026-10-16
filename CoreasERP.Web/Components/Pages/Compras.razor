@@ -1,0 +1,317 @@
+@page "/compras"
+@implements IDisposable
+@inject IPurchaseService PurchaseService
+
+<div class="compras-page" tabindex="0" @onkeydown="HandleKeyDown" style="outline: none;">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h4 class="fw-bold mb-1">Registro de Compras a Proveedores</h4>
+            <p class="text-muted small mb-0">Recepción de mercadería, facturas de compras y entrada a inventario</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm px-3 shadow-sm d-flex align-items-center gap-1 fw-semibold" @onclick="() => isQuickSupplierOpen = true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+                <span>+ Nuevo Proveedor</span>
+            </button>
+            <button class="btn btn-success btn-sm px-3 shadow-sm d-flex align-items-center gap-1 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="() => isPurchaseModalOpen = true">
+                <span>+ Nueva Compra</span>
+                <kbd class="bg-white text-dark px-1 py-0 rounded ms-1" style="font-size: 10px;">F1</kbd>
+            </button>
+        </div>
+    </div>
+
+@if (!string.IsNullOrEmpty(FeedbackMessage))
+{
+    <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small mb-3">
+        @FeedbackMessage
+        <button type="button" class="btn-close py-2" @onclick="() => FeedbackMessage = null"></button>
+    </div>
+}
+
+<!-- Filtros de Búsqueda -->
+<div class="card border-0 shadow-sm p-3 mb-4 bg-white rounded-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-12 col-md-5">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-white text-muted">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </span>
+                <input type="text" class="form-control" placeholder="Buscar por número de factura o proveedor..." 
+                       @bind="SearchTerm" @bind:event="oninput" @onkeyup="CargarCompras" />
+                @if (!string.IsNullOrEmpty(SearchTerm))
+                {
+                    <button class="btn btn-outline-secondary" type="button" @onclick="LimpiarBusqueda">&times;</button>
+                }
+            </div>
+        </div>
+
+        <div class="col-12 col-md-4">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-white text-muted">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+                </span>
+                <input type="date" class="form-control" @bind="FechaFiltro" @bind:after="CargarCompras" />
+                <button class="btn btn-outline-secondary" type="button" @onclick="LimpiarFecha">Todas</button>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-3 text-md-end">
+            <span class="badge bg-light text-secondary border small">
+                Total Compras: @ListaCompras.Count
+            </span>
+        </div>
+    </div>
+</div>
+
+<!-- Tabla de Compras -->
+<div class="card border-0 shadow-sm rounded-3">
+    <div class="card-body p-0">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-success"></div>
+                <div class="mt-2 text-muted small">Cargando compras...</div>
+            </div>
+        }
+        else if (!ListaCompras.Any())
+        {
+            <div class="text-center py-5 text-muted">
+                <div class="mb-2 text-muted">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+                </div>
+                <div>No se registran compras de mercadería</div>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>N° Factura</th>
+                            <th>Proveedor</th>
+                            <th>Fecha y Hora</th>
+                            <th>Usuario</th>
+                            <th class="text-center">Artículos</th>
+                            <th class="text-end">Total Facturado</th>
+                            <th class="text-center">Estado</th>
+                            <th class="text-center" style="width: 140px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in ListaCompras)
+                        {
+                            <tr>
+                                <td class="fw-bold font-monospace text-dark">@c.NumFactura</td>
+                                <td class="fw-semibold">@(c.Proveedor?.Nombre ?? "-")</td>
+                                <td class="text-muted">@c.FechaHora.ToString("dd/MM/yyyy hh:mm tt")</td>
+                                <td class="text-muted">@(c.Usuario?.Nombre ?? "-")</td>
+                                <td class="text-center">
+                                    <span class="badge bg-light text-dark border">
+                                        @c.DetalleCompras.Sum(d => d.Cantidad) unidades (@c.DetalleCompras.Count ítems)
+                                    </span>
+                                </td>
+                                <td class="text-end fw-bold fs-6 text-dark">$@c.Total.ToString("F2")</td>
+                                <td class="text-center">
+                                    <span class="badge @(c.Estado == "Completada" ? "badge-completed" : "badge-cancelled")">
+                                        @c.Estado
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <div class="d-inline-flex gap-1">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm py-1 px-2" 
+                                                title="Ver Detalle" @onclick="() => VerDetalle(c)">
+                                            Ver
+                                        </button>
+                                        @if (c.Estado == "Completada")
+                                        {
+                                            <button type="button" class="btn btn-outline-danger btn-sm py-1 px-2" 
+                                                    title="Anular Compra" @onclick="() => ConfirmarAnular(c)">
+                                                Anular
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Modal Nueva Compra -->
+<PurchaseModal @bind-IsOpen="isPurchaseModalOpen" OnSaved="CargarCompras" />
+
+<!-- Modal Rápido de Nuevo Proveedor -->
+<QuickSupplierModal @bind-IsOpen="isQuickSupplierOpen" OnCreated="OnProveedorCreadoDesdeCompras" />
+
+<!-- Modal Detalle de Compra -->
+@if (isDetailModalOpen && CompraSeleccionada != null)
+{
+    <div class="modal-backdrop-custom" @onclick="() => isDetailModalOpen = false">
+        <div class="modal-content-custom large" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 fw-bold">Detalle de Compra @CompraSeleccionada.NumFactura</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="() => isDetailModalOpen = false"></button>
+            </div>
+            <div class="p-4">
+                <div class="row g-2 p-3 bg-light rounded-3 small mb-3">
+                    <div class="col-6 col-md-3">
+                        <span class="text-muted d-block">Proveedor:</span>
+                        <strong>@(CompraSeleccionada.Proveedor?.Nombre ?? "-")</strong>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <span class="text-muted d-block">Fecha:</span>
+                        <strong>@CompraSeleccionada.FechaHora.ToString("dd/MM/yyyy hh:mm tt")</strong>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <span class="text-muted d-block">Registrado por:</span>
+                        <strong>@(CompraSeleccionada.Usuario?.Nombre ?? "-")</strong>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <span class="text-muted d-block">Estado:</span>
+                        <span class="badge @(CompraSeleccionada.Estado == "Completada" ? "badge-completed" : "badge-cancelled")">
+                            @CompraSeleccionada.Estado
+                        </span>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered align-middle small mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Código</th>
+                                <th>Producto</th>
+                                <th class="text-center">Cant.</th>
+                                <th class="text-end">Costo Unitario</th>
+                                <th class="text-end">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var d in CompraSeleccionada.DetalleCompras)
+                            {
+                                <tr>
+                                    <td class="font-monospace text-muted">@(d.Producto?.Codigo ?? "-")</td>
+                                    <td class="fw-semibold">@(d.Producto?.Nombre ?? "Producto")</td>
+                                    <td class="text-center fw-bold">@d.Cantidad</td>
+                                    <td class="text-end">$@d.PrecioCompra.ToString("F2")</td>
+                                    <td class="text-end fw-bold text-dark">$@d.Subtotal.ToString("F2")</td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot class="table-light">
+                            <tr>
+                                <td colspan="4" class="text-end fw-bold fs-6">TOTAL COMPRA:</td>
+                                <td class="text-end fw-bold fs-6 text-primary">$@CompraSeleccionada.Total.ToString("F2")</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+            <div class="p-3 border-top bg-light d-flex justify-content-end">
+                <button class="btn btn-secondary btn-sm" @onclick="() => isDetailModalOpen = false">Cerrar</button>
+            </div>
+        </div>
+    </div>
+}
+</div>
+
+@code {
+    private List<Compra> ListaCompras = new();
+    private string SearchTerm = "";
+    private DateTime? FechaFiltro;
+    private bool isLoading = true;
+
+    private bool isPurchaseModalOpen;
+    private bool isDetailModalOpen;
+    private bool isQuickSupplierOpen;
+    private Compra? CompraSeleccionada;
+    private string? FeedbackMessage;
+    private bool isSuccess;
+
+    private void OnProveedorCreadoDesdeCompras(Proveedor p)
+    {
+        FeedbackMessage = $"Proveedor '{p.Nombre}' registrado exitosamente.";
+        isSuccess = true;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        KeyboardBridgeService.OnF1Pressed += HandleGlobalF1;
+        await CargarCompras();
+    }
+
+    public void Dispose()
+    {
+        KeyboardBridgeService.OnF1Pressed -= HandleGlobalF1;
+    }
+
+    private void HandleGlobalF1()
+    {
+        if (!isPurchaseModalOpen && !isDetailModalOpen)
+        {
+            isPurchaseModalOpen = true;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CargarCompras()
+    {
+        isLoading = true;
+        try
+        {
+            ListaCompras = await PurchaseService.GetComprasAsync(FechaFiltro, SearchTerm) ?? new();
+        }
+        catch (Exception ex)
+        {
+            ListaCompras = new();
+            FeedbackMessage = $"Error al cargar compras: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LimpiarBusqueda()
+    {
+        SearchTerm = "";
+        await CargarCompras();
+    }
+
+    private async Task LimpiarFecha()
+    {
+        FechaFiltro = null;
+        await CargarCompras();
+    }
+
+    private void VerDetalle(Compra c)
+    {
+        CompraSeleccionada = c;
+        isDetailModalOpen = true;
+    }
+
+    private async Task ConfirmarAnular(Compra c)
+    {
+        var result = await PurchaseService.AnularCompraAsync(c.IdCompra);
+        isSuccess = result.Success;
+        FeedbackMessage = result.Message;
+        if (result.Success)
+        {
+            await CargarCompras();
+        }
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "F1" && !isPurchaseModalOpen && !isDetailModalOpen)
+        {
+            isPurchaseModalOpen = true;
+        }
+    }
+}

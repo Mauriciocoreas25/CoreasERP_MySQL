@@ -1,0 +1,586 @@
+@page "/configuracion"
+@inject ISettingsService SettingsService
+@inject IConnectionConfigService ConnectionConfig
+@inject IFelSvApiService FelSvApiService
+@inject IPrintService PrintService
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1">Configuración del Sistema</h4>
+        <p class="text-muted small mb-0">Parámetros del negocio, datos para comprobantes fiscales y conexión a SQL Server</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(FeedbackMessage))
+{
+    <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small mb-3">
+        @FeedbackMessage
+        <button type="button" class="btn-close py-2" @onclick="() => FeedbackMessage = null"></button>
+    </div>
+}
+
+<div class="row g-4">
+    <!-- 1. Datos del Negocio para Tickets y Facturas -->
+    <div class="col-12 col-lg-7">
+        <div class="card border-0 shadow-sm rounded-3">
+            <div class="card-header bg-white py-3 border-bottom d-flex align-items-center gap-2">
+                <h6 class="mb-0 fw-bold">Información de la Empresa & Tickets</h6>
+            </div>
+            <div class="card-body p-4">
+                @if (isLoadingConfig)
+                {
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-success"></div>
+                    </div>
+                }
+                else
+                {
+                    <div class="row g-3">
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">Nombre Comercial del Negocio *</label>
+                            <input type="text" class="form-control form-control-sm fw-bold" @bind="Config.NombreNegocio" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">Propietario / Razón Social</label>
+                            <input type="text" class="form-control form-control-sm" @bind="Config.Propietario" placeholder="Ej. Jostin Alexander Amaya Chavez" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">Teléfonos de Contacto</label>
+                            <input type="text" class="form-control form-control-sm" @bind="Config.Telefono" placeholder="Ej. 7007-9140" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">Correo Electrónico</label>
+                            <input type="email" class="form-control form-control-sm" @bind="Config.Email" placeholder="info@coreaserp.com" />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold">Dirección Comercial</label>
+                            <input type="text" class="form-control form-control-sm" @bind="Config.Direccion" placeholder="Ej. San Miguel, El Salvador" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">NRC (Registro de Contribuyente)</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" @bind="Config.Nrc" placeholder="Ej. 389607-9" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">NIT</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" @bind="Config.Nit" placeholder="Ej. 06898170-7" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">Tasa de Impuesto IVA (%)</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" step="0.01" min="0" class="form-control" @bind="Config.TasaIva" />
+                                <span class="input-group-text">%</span>
+                            </div>
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">Pie del Ticket Térmico</label>
+                            <input type="text" class="form-control form-control-sm" @bind="Config.MensajeTicket" placeholder="¡Gracias por su compra! Vuelva pronto" />
+                        </div>
+                    </div>
+
+                    <div class="mt-4 pt-3 border-top text-end">
+                        <button class="btn btn-success btn-sm px-4 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="GuardarConfiguracion" disabled="@isSavingConfig">
+                            @if (isSavingConfig)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Guardando...</span>
+                            }
+                            else
+                            {
+                                <span>Guardar Cambios de Empresa</span>
+                            }
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Parámetros de Conexión SQL Server -->
+    <div class="col-12 col-lg-5">
+        <div class="card border-0 shadow-sm rounded-3 h-100">
+            <div class="card-header bg-white py-3 border-bottom d-flex align-items-center gap-2">
+                <h6 class="mb-0 fw-bold">Servidor SQL Server</h6>
+            </div>
+            <div class="card-body p-4">
+                <p class="small text-muted mb-3">
+                    Configuración de conexión local o red LAN a tu motor Microsoft SQL Server sin necesidad de internet.
+                </p>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Cadena de Conexión Activa:</label>
+                    <textarea class="form-control font-monospace small" rows="4" @bind="ConnectionString"></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Instancias Comunes:</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetSqlExpress">
+                            SQLEXPRESS
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalDb">
+                            LocalDB
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalhost">
+                            Localhost
+                        </button>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(SqlTestMessage))
+                {
+                    <div class="alert @(SqlTestSuccess ? "alert-success" : "alert-danger") py-2 small mb-3">
+                        @(SqlTestSuccess ? "Conexión exitosa: " : "Error: ") @SqlTestMessage
+                    </div>
+                }
+
+                <div class="d-flex gap-2 justify-content-between pt-2">
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ProbarConexion" disabled="@isTestingSql">
+                        @if (isTestingSql)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Probando...</span>
+                        }
+                        else
+                        {
+                            <span>Probar Conexión</span>
+                        }
+                    </button>
+                    <button class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="GuardarSql">
+                        Aplicar Conexión
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Parámetros de Facturación Electrónica (FelSv / Ministerio de Hacienda) -->
+    <div class="col-12">
+        <div class="card border-0 shadow-sm rounded-3 border-start border-4 border-success">
+            <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <div>
+                        <h6 class="mb-0 fw-bold">Facturación Electrónica (API FelSv / Ministerio de Hacienda de El Salvador)</h6>
+                        <small class="text-muted">Configuración del Tenant ID (sucursal), endpoint de la API, ambiente y puntos de venta</small>
+                    </div>
+                </div>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" role="switch" id="switchDte" @bind="Config.HabilitarDte" style="cursor: pointer; transform: scale(1.2);">
+                    <label class="form-check-label fw-bold small ms-2" for="switchDte">
+                        @(Config.HabilitarDte ? "DTE Habilitado en POS" : "DTE Desactivado (Modo Local)")
+                    </label>
+                </div>
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-3">
+                    <!-- Tenant ID -->
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-success">
+                            Tenant ID de Sucursal (Header 'X-Tenant-Id') *
+                        </label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control form-control-sm font-monospace fw-bold" 
+                                   @bind="Config.FelSvTenantId" placeholder="Ej: 772e934a-320b-4891-a245-f2dd7911c994" />
+                        </div>
+                        <div class="form-text text-muted small" style="font-size: 11px;">
+                            Pega aquí el <strong>Tenant ID</strong> asignado para tu empresa o sucursal en FelSv. Se envía automáticamente en cada emisión como <code>X-Tenant-Id</code>.
+                        </div>
+                    </div>
+
+                    <!-- URL API FelSv -->
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">
+                            URL Base de la API FelSv
+                        </label>
+                        <input type="text" class="form-control form-control-sm font-monospace" 
+                               @bind="Config.FelSvApiUrl" placeholder="http://localhost:5000" />
+                        <div class="form-text text-muted small" style="font-size: 11px;">
+                            Dirección donde corre el microservicio FelSv (por defecto: <code>http://localhost:5000</code>).
+                        </div>
+                    </div>
+
+                    <!-- Ambiente MH -->
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Ambiente Ministerio de Hacienda</label>
+                        <select class="form-select form-select-sm fw-semibold" @bind="Config.FelSvAmbiente">
+                            <option value="00">00 - Pruebas / Sandbox (Habilitación)</option>
+                            <option value="01">01 - Producción (Transmisión Real MH)</option>
+                        </select>
+                        <div class="form-text text-muted small" style="font-size: 11px;">
+                            Ambiente de transmisión oficial para la firma y sello de Hacienda.
+                        </div>
+                    </div>
+
+                    <!-- Código Establecimiento -->
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Código Establecimiento MH</label>
+                        <input type="text" maxlength="4" class="form-control form-control-sm font-monospace text-uppercase" 
+                               @bind="Config.CodEstablecimiento" placeholder="M001" />
+                        <div class="form-text text-muted small" style="font-size: 11px;">
+                            4 caracteres asignados por Hacienda (Ej: <strong>M001</strong> para Matriz, <strong>S001</strong> para Sucursal).
+                        </div>
+                    </div>
+
+                    <!-- Código Punto de Venta -->
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Código Punto de Venta MH</label>
+                        <input type="text" maxlength="4" class="form-control form-control-sm font-monospace text-uppercase" 
+                               @bind="Config.CodPuntoVenta" placeholder="P001" />
+                        <div class="form-text text-muted small" style="font-size: 11px;">
+                            4 caracteres para esta caja o terminal (Ej: <strong>P001</strong>, <strong>P002</strong>).
+                        </div>
+                    </div>
+
+                    <!-- Departamento MH CAT-012 -->
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-success">Departamento del Negocio (CAT-012)</label>
+                        <select class="form-select form-select-sm fw-semibold" @bind="Config.CatDepartamento">
+                            <option value="01">01 - Ahuachapán</option>
+                            <option value="02">02 - Santa Ana</option>
+                            <option value="03">03 - Sonsonate</option>
+                            <option value="04">04 - Chalatenango</option>
+                            <option value="05">05 - La Libertad</option>
+                            <option value="06">06 - San Salvador</option>
+                            <option value="07">07 - Cuscatlán</option>
+                            <option value="08">08 - La Paz</option>
+                            <option value="09">09 - Cabañas</option>
+                            <option value="10">10 - San Vicente</option>
+                            <option value="11">11 - Usulután</option>
+                            <option value="12">12 - San Miguel</option>
+                            <option value="13">13 - Morazán</option>
+                            <option value="14">14 - La Unión</option>
+                        </select>
+                        <div class="form-text text-muted small" style="font-size: 11px;">
+                            Código oficial de 2 dígitos del catálogo CAT-012 del Ministerio de Hacienda.
+                        </div>
+                    </div>
+
+                    <!-- Código Municipio CAT-013 -->
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-bold text-success">Código de Municipio (CAT-013)</label>
+                        <input type="text" maxlength="4" class="form-control form-control-sm font-monospace fw-semibold" 
+                               @bind="Config.CatMunicipio" placeholder="1201" />
+                        <div class="form-text text-muted small" style="font-size: 11px;">
+                            Código de 4 dígitos del catálogo CAT-013 (Ej: <strong>1201</strong> para San Miguel / Carolina, <strong>0614</strong> para San Salvador).
+                        </div>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(FelSvTestMessage))
+                {
+                    <div class="alert @(FelSvTestSuccess ? "alert-success" : "alert-danger") py-2 px-3 small mt-3 mb-0 d-flex align-items-center gap-2">
+                        <div>@FelSvTestMessage</div>
+                    </div>
+                }
+
+                <div class="mt-4 pt-3 border-top d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm px-3" 
+                            @onclick="ProbarConexionFelSv" disabled="@isTestingFelSv">
+                        @if (isTestingFelSv)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Probando Conexión...</span>
+                        }
+                        else
+                        {
+                            <span>Probar Conexión con FelSv API</span>
+                        }
+                    </button>
+
+                    <button class="btn btn-success btn-sm px-4 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="GuardarConfiguracion" disabled="@isSavingConfig">
+                        Guardar Parámetros DTE
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Impresoras del Sistema (Tickets POS y Documentos Oficiales Carta / PDF) -->
+        <div class="card border-0 shadow-sm rounded-3 border-start border-4 border-success">
+            <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <div>
+                        <h6 class="mb-0 fw-bold">Impresoras del Sistema (Tickets POS y Documentos Carta / PDF)</h6>
+                        <small class="text-muted">Configura las impresoras para tickets rápidos de mostrador y para comprobantes formales (Crédito Fiscal, Facturas, Notas).</small>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" @onclick="CargarImpresoras" title="Detectar impresoras conectadas">
+                    <span>Detectar Impresoras</span>
+                </button>
+            </div>
+            <div class="card-body p-4">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <span class="badge bg-light text-dark border px-2 py-1 fw-bold">A. Impresora Térmica (Tickets de Venta y Cobro Rápido)</span>
+                    </div>
+
+                    <!-- Selector de Impresora Térmica -->
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-bold text-success">
+                            Impresora Térmica de Destino (USB / Red)
+                        </label>
+                        <select class="form-select form-select-sm fw-semibold" @bind="Config.NombreImpresora">
+                            <option value="">(Predeterminada de Windows - Automática)</option>
+                            @foreach (var p in ListaImpresoras)
+                            {
+                                <option value="@p">@p</option>
+                            }
+                        </select>
+                        <div class="form-text small">
+                            Selecciona tu impresora térmica (ej. POS-80, XP-80, Epson, etc.) para tickets sin desperdicio de papel.
+                        </div>
+                    </div>
+
+                    <!-- Ancho de Papel -->
+                    <div class="col-12 col-md-2">
+                        <label class="form-label small fw-bold text-success">
+                            Ancho de Rollo
+                        </label>
+                        <select class="form-select form-select-sm fw-semibold" @bind="Config.AnchoPapelMm">
+                            <option value="80">80 mm (POS-80)</option>
+                            <option value="58">58 mm (POS-58)</option>
+                        </select>
+                        <div class="form-text small">
+                            Ajusta el margen al rollo.
+                        </div>
+                    </div>
+
+                    <!-- Modo de Impresión Térmica -->
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small fw-bold text-success">
+                            Modo Tickets Térmicos
+                        </label>
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" role="switch" id="switchDirectPrint" @bind="Config.ImpresionDirecta" style="cursor: pointer; transform: scale(1.15);">
+                            <label class="form-check-label fw-bold small ms-1" for="switchDirectPrint">
+                                @(Config.ImpresionDirecta ? "Directo sin diálogo" : "Diálogo Windows")
+                            </label>
+                        </div>
+                        <div class="form-text small">
+                            Imprime directo al hardware.
+                        </div>
+                    </div>
+
+                    <!-- Corte Automático de Papel -->
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small fw-bold text-success">
+                            Corte Automático (Guillotina)
+                        </label>
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" role="switch" id="switchCortarPapel" @bind="Config.CortarPapel" style="cursor: pointer; transform: scale(1.15);">
+                            <label class="form-check-label fw-bold small ms-1" for="switchCortarPapel">
+                                @(Config.CortarPapel ? "Guillotina Activa" : "Corte Manual")
+                            </label>
+                        </div>
+                        <div class="form-text small">
+                            Comando ESC/POS de corte al terminar.
+                        </div>
+                    </div>
+
+                    <div class="col-12 mt-3 pt-3 border-top">
+                        <span class="badge bg-light text-dark border px-2 py-1 fw-bold">B. Impresora de Documentos Formales (Facturas, CCF, Notas en Tamaño Carta / PDF)</span>
+                    </div>
+
+                    <!-- Selector de Impresora para Documentos Carta / PDF -->
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small fw-bold text-success">
+                            Impresora de Oficina / Destino PDF (Tamaño Carta)
+                        </label>
+                        <select class="form-select form-select-sm fw-semibold" @bind="Config.NombreImpresoraDocumentos">
+                            <option value="">(Diálogo de Windows / Guardar en PDF - Predeterminado)</option>
+                            @foreach (var p in ListaImpresoras)
+                            {
+                                <option value="@p">@p</option>
+                            }
+                        </select>
+                        <div class="form-text small">
+                            Selecciona una impresora de oficina (Láser o Inyección de tinta tamaño carta) para imprimir Facturas, Comprobantes de Crédito Fiscal, Notas de Remisión y Notas de Crédito/Débito. Si se deja en la opción predeterminada, se abrirá el diálogo estándar de Windows con opción de imprimir o <strong>"Guardar como PDF"</strong>.
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-md-4 d-flex align-items-center">
+                        <div class="alert alert-light border small mb-0 w-100 py-2">
+                            <div class="fw-bold text-dark mb-1">Formato Oficial de Hacienda:</div>
+                            <span class="text-muted" style="font-size: 11px;">Las facturas y CCF se generan a página completa (8.5" x 11") con cuadro tributario, detalle de impuestos desglosado y código QR oficial de consulta pública.</span>
+                        </div>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(PrinterTestMessage))
+                {
+                    <div class="alert @(PrinterTestSuccess ? "alert-success" : "alert-danger") py-2 px-3 small mt-3 mb-0 d-flex align-items-center gap-2">
+                        <div>@PrinterTestMessage</div>
+                    </div>
+                }
+
+                <div class="mt-4 pt-3 border-top d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-success btn-sm px-3 fw-semibold d-flex align-items-center gap-2" 
+                            @onclick="ProbarImpresora" disabled="@isTestingPrinter">
+                        @if (isTestingPrinter)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status"></span>
+                            <span>Enviando prueba...</span>
+                        }
+                        else
+                        {
+                            <span>Imprimir Ticket de Prueba</span>
+                        }
+                    </button>
+
+                    <button class="btn btn-success btn-sm px-4 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="GuardarConfiguracion" disabled="@isSavingConfig">
+                        Guardar Configuración de Impresión
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private ConfiguracionNegocio Config = new();
+    private string ConnectionString = "";
+    private bool isLoadingConfig = true;
+    private bool isSavingConfig;
+
+    private List<string> ListaImpresoras = new();
+    private bool isTestingPrinter;
+    private string? PrinterTestMessage;
+    private bool PrinterTestSuccess;
+
+    private bool isTestingSql;
+    private string? SqlTestMessage;
+    private bool SqlTestSuccess;
+
+    private string? FeedbackMessage;
+    private bool isSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ConnectionString = ConnectionConfig.GetConnectionString();
+        CargarImpresoras();
+        await CargarConfiguracion();
+    }
+
+    private void CargarImpresoras()
+    {
+        try
+        {
+            ListaImpresoras = PrintService.GetInstalledPrinters();
+        }
+        catch { }
+    }
+
+    private async Task ProbarImpresora()
+    {
+        isTestingPrinter = true;
+        PrinterTestMessage = null;
+        try
+        {
+            var res = await PrintService.PrintTestReceiptAsync(Config.NombreImpresora, Config.AnchoPapelMm, Config);
+            PrinterTestSuccess = res.Success;
+            PrinterTestMessage = res.Message;
+        }
+        catch (Exception ex)
+        {
+            PrinterTestSuccess = false;
+            PrinterTestMessage = $"Error al probar impresora: {ex.Message}";
+        }
+        finally
+        {
+            isTestingPrinter = false;
+        }
+    }
+
+    private async Task CargarConfiguracion()
+    {
+        isLoadingConfig = true;
+        try
+        {
+            Config = await SettingsService.GetConfiguracionAsync();
+        }
+        catch (Exception ex)
+        {
+            FeedbackMessage = $"No se pudo cargar la configuración: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoadingConfig = false;
+        }
+    }
+
+    private async Task GuardarConfiguracion()
+    {
+        isSavingConfig = true;
+        FeedbackMessage = null;
+
+        var result = await SettingsService.SaveConfiguracionAsync(Config);
+        isSavingConfig = false;
+        isSuccess = result.Success;
+        FeedbackMessage = result.Message;
+    }
+
+    private void SetSqlExpress()
+    {
+        ConnectionString = @"Server=.\SQLEXPRESS;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+    }
+
+    private void SetLocalDb()
+    {
+        ConnectionString = @"Server=(localdb)\MSSQLLocalDB;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+    }
+
+    private void SetLocalhost()
+    {
+        ConnectionString = @"Server=localhost;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+    }
+
+    private async Task ProbarConexion()
+    {
+        isTestingSql = true;
+        SqlTestMessage = null;
+
+        var result = await ConnectionConfig.TestConnectionAsync(ConnectionString);
+        isTestingSql = false;
+        SqlTestSuccess = result.Success;
+        SqlTestMessage = result.Message;
+    }
+
+    private void GuardarSql()
+    {
+        ConnectionConfig.SetConnectionString(ConnectionString);
+        isSuccess = true;
+        FeedbackMessage = "¡Cadena de conexión guardada exitosamente!";
+    }
+
+    private bool isTestingFelSv;
+    private string? FelSvTestMessage;
+    private bool FelSvTestSuccess;
+
+    private async Task ProbarConexionFelSv()
+    {
+        isTestingFelSv = true;
+        FelSvTestMessage = null;
+        try
+        {
+            var result = await FelSvApiService.ProbarConexionAsync(Config.FelSvApiUrl, Config.FelSvTenantId);
+            FelSvTestSuccess = result.Online;
+            FelSvTestMessage = result.Message;
+        }
+        catch (Exception ex)
+        {
+            FelSvTestSuccess = false;
+            FelSvTestMessage = $"Error de conexión con FelSv API: {ex.Message}";
+        }
+        finally
+        {
+            isTestingFelSv = false;
+        }
+    }
+}

@@ -1,0 +1,425 @@
+@inject ICashRegisterService CashRegisterService
+@inject ISettingsService SettingsService
+
+@if (IsOpen && Corte != null)
+{
+    <div class="modal-backdrop-custom" tabindex="-1" @onclick="Cerrar">
+        <div class="modal-content-custom" @onclick:stopPropagation="true" style="max-width: 780px; max-height: 92vh; display: flex; flex-direction: column;">
+            <!-- Encabezado del Modal -->
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center @(TipoCorte == "CORTE Z" ? "bg-danger text-white" : "bg-dark text-white")">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>
+                    </svg>
+                    <div>
+                        <h6 class="mb-0 fw-bold text-white">@(TipoCorte == "CORTE Z" ? "Arqueo Físico & Cierre Z de Turno" : "Arqueo Parcial de Efectivo — Corte X")</h6>
+                        <small class="text-white-50">Desglose de billetes, monedas y verificación de gaveta</small>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-sm text-white-50 p-0 border-0 bg-transparent fs-5 lh-1" @onclick="Cerrar">&times;</button>
+            </div>
+
+            <!-- Cuerpo con calculadora de denominaciones -->
+            <div class="p-3 p-md-4 bg-light" style="overflow-y: auto; flex: 1;">
+                <!-- 1. Fondo Inicial y Datos del Turno -->
+                <div class="row g-2 mb-3 bg-white p-3 rounded-3 shadow-sm border">
+                    <div class="col-12 col-md-4">
+                        <div class="small text-muted">Cajero:</div>
+                        <div class="fw-bold text-dark">@(Corte.Usuario?.Nombre ?? "Cajero")</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="small text-muted">Apertura de Caja:</div>
+                        <div class="fw-bold text-dark">@Corte.FechaApertura.ToString("dd/MM/yyyy hh:mm tt")</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="small fw-bold text-success mb-1">Fondo Inicial en Gaveta ($):</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">$</span>
+                            <input type="number" step="0.01" min="0" class="form-control fw-bold font-monospace text-end"
+                                   @bind="FondoInicialEditable" @bind:after="RecalcularBalance" />
+                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ActualizarFondoInicial" title="Guardar ajuste de fondo inicial">
+                                Guardar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Calculadora de Denominaciones: Billetes y Monedas -->
+                <div class="row g-3 mb-3">
+                    <!-- Columna Billetes -->
+                    <div class="col-12 col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-white py-2 border-bottom d-flex justify-content-between align-items-center">
+                                <span class="fw-bold text-success small">BILLETES (USD)</span>
+                                <span class="badge bg-success bg-opacity-10 text-success fw-bold font-monospace">$@Desglose.TotalBilletes.ToString("F2")</span>
+                            </div>
+                            <div class="card-body p-2">
+                                <table class="table table-sm table-borderless align-middle mb-0" style="font-size: 12px;">
+                                    <tbody>
+                                        <tr>
+                                            <td class="fw-bold text-secondary" style="width: 70px;">$100.00</td>
+                                            <td style="width: 30px;" class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Billetes100" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark" style="width: 80px;">
+                                                $@((Desglose.Billetes100 * 100m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-secondary">$50.00</td>
+                                            <td class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Billetes50" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark">
+                                                $@((Desglose.Billetes50 * 50m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-secondary">$20.00</td>
+                                            <td class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Billetes20" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark">
+                                                $@((Desglose.Billetes20 * 20m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-secondary">$10.00</td>
+                                            <td class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Billetes10" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark">
+                                                $@((Desglose.Billetes10 * 10m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-secondary">$5.00</td>
+                                            <td class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Billetes5" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark">
+                                                $@((Desglose.Billetes5 * 5m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-secondary">$1.00</td>
+                                            <td class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Billetes1" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark">
+                                                $@((Desglose.Billetes1 * 1m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Columna Monedas -->
+                    <div class="col-12 col-md-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-white py-2 border-bottom d-flex justify-content-between align-items-center">
+                                <span class="fw-bold text-primary small">MONEDAS (USD)</span>
+                                <span class="badge bg-primary bg-opacity-10 text-primary fw-bold font-monospace">$@Desglose.TotalMonedas.ToString("F2")</span>
+                            </div>
+                            <div class="card-body p-2">
+                                <table class="table table-sm table-borderless align-middle mb-0" style="font-size: 12px;">
+                                    <tbody>
+                                        <tr>
+                                            <td class="fw-bold text-secondary" style="width: 70px;">$1.00</td>
+                                            <td style="width: 30px;" class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Monedas1" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark" style="width: 80px;">
+                                                $@((Desglose.Monedas1 * 1.00m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-secondary">$0.25 <small class="text-muted">(Cora)</small></td>
+                                            <td class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Monedas025" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark">
+                                                $@((Desglose.Monedas025 * 0.25m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-secondary">$0.10 <small class="text-muted">(Dime)</small></td>
+                                            <td class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Monedas010" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark">
+                                                $@((Desglose.Monedas010 * 0.10m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-secondary">$0.05 <small class="text-muted">(Nickel)</small></td>
+                                            <td class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Monedas005" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark">
+                                                $@((Desglose.Monedas005 * 0.05m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td class="fw-bold text-secondary">$0.01 <small class="text-muted">(Penny)</small></td>
+                                            <td class="text-muted">&times;</td>
+                                            <td>
+                                                <input type="number" min="0" class="form-control form-control-sm text-center fw-bold"
+                                                       @bind="Desglose.Monedas001" @bind:event="oninput" @bind:after="RecalcularBalance" placeholder="0" />
+                                            </td>
+                                            <td class="text-end font-monospace fw-bold text-dark">
+                                                $@((Desglose.Monedas001 * 0.01m).ToString("F2"))
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Panel de Cuadre Financiero en Tiempo Real -->
+                <div class="card border-0 shadow-sm bg-white p-3 rounded-3 mb-2">
+                    <div class="row g-3 align-items-center text-center">
+                        <div class="col-12 col-md-4 border-end">
+                            <div class="text-muted small fw-semibold">Efectivo Esperado en Sistema:</div>
+                            <div class="fs-5 fw-bold text-dark font-monospace mt-1">
+                                $@(ResumenCalculado?.EfectivoEsperado.ToString("F2") ?? "0.00")
+                            </div>
+                            <div class="text-muted" style="font-size: 10px;">(Inicial + Ventas + Abonos - Gastos)</div>
+                        </div>
+
+                        <div class="col-12 col-md-4 border-end">
+                            <div class="text-muted small fw-semibold">Efectivo Físico Contado:</div>
+                            <div class="fs-4 fw-bold text-primary font-monospace mt-1">
+                                $@Desglose.TotalFisicoContado.ToString("F2")
+                            </div>
+                            <div class="text-muted" style="font-size: 10px;">(Suma Billetes + Monedas)</div>
+                        </div>
+
+                        <div class="col-12 col-md-4">
+                            @{
+                                decimal esperado = ResumenCalculado?.EfectivoEsperado ?? 0m;
+                                decimal contado = Desglose.TotalFisicoContado;
+                                decimal diferencia = contado - esperado;
+                            }
+                            <div class="text-muted small fw-semibold">Diferencia de Arqueo:</div>
+                            @if (diferencia == 0m)
+                            {
+                                <div class="fs-5 fw-bold text-success font-monospace mt-1">
+                                    $0.00 (CUADRADA)
+                                </div>
+                                <span class="badge bg-success bg-opacity-10 text-success small">Exacto sin diferencias</span>
+                            }
+                            else if (diferencia > 0m)
+                            {
+                                <div class="fs-5 fw-bold text-primary font-monospace mt-1">
+                                    +$@diferencia.ToString("F2") (SOBRANTE)
+                                </div>
+                                <span class="badge bg-primary bg-opacity-10 text-primary small">Sobrante en gaveta</span>
+                            }
+                            else
+                            {
+                                <div class="fs-5 fw-bold text-danger font-monospace mt-1">
+                                    -$@(Math.Abs(diferencia).ToString("F2")) (FALTANTE)
+                                </div>
+                                <span class="badge bg-danger bg-opacity-10 text-danger small">Faltante en gaveta</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(FeedbackMsg))
+                {
+                    <div class="alert alert-info py-2 small mb-0">@FeedbackMsg</div>
+                }
+            </div>
+
+            <!-- Pie de Acciones -->
+            <div class="p-3 border-top bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm px-3" @onclick="LimpiarConteo" title="Reiniciar conteo a cero">
+                    Limpiar Conteo
+                </button>
+
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-secondary btn-sm px-3" @onclick="Cerrar">
+                        Cerrar [Esc]
+                    </button>
+
+                    @if (TipoCorte == "CORTE Z")
+                    {
+                        <button type="button" class="btn btn-danger btn-sm px-4 fw-bold shadow-sm"
+                                @onclick="ProcederCierreZ" disabled="@isProcessing">
+                            @if (isProcessing)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Cerrando turno...</span>
+                            }
+                            else
+                            {
+                                <span>Confirmar Cierre Z e Imprimir</span>
+                            }
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btn-success btn-sm px-4 fw-bold shadow-sm"
+                                style="background-color: #15803d; border-color: #15803d;"
+                                @onclick="ProcederCorteX" disabled="@isProcessing">
+                            @if (isProcessing)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Generando...</span>
+                            }
+                            else
+                            {
+                                <span>Ver e Imprimir Ticket de Corte X</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public CorteCaja? Corte { get; set; }
+    [Parameter] public string TipoCorte { get; set; } = "CORTE X";
+    [Parameter] public EventCallback<ResumenCorteDto> OnCorteListoParaImprimir { get; set; }
+    [Parameter] public EventCallback OnCajaCerrada { get; set; }
+
+    private DesgloseDenominacionDto Desglose = new();
+    private ResumenCorteDto? ResumenCalculado;
+    private decimal FondoInicialEditable = 0m;
+    private bool isProcessing = false;
+    private string? FeedbackMsg;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && Corte != null)
+        {
+            FondoInicialEditable = Corte.MontoInicial;
+            await CargarResumen();
+        }
+    }
+
+    private async Task CargarResumen()
+    {
+        if (Corte == null) return;
+        try
+        {
+            ResumenCalculado = await CashRegisterService.GenerarResumenCorteAsync(Corte.IdCorte, TipoCorte, Desglose);
+        }
+        catch { }
+    }
+
+    private async Task RecalcularBalance()
+    {
+        await CargarResumen();
+        StateHasChanged();
+    }
+
+    private async Task ActualizarFondoInicial()
+    {
+        if (Corte == null) return;
+        var res = await CashRegisterService.ActualizarMontoInicialAsync(Corte.IdCorte, FondoInicialEditable);
+        if (res.Success && res.Corte != null)
+        {
+            Corte.MontoInicial = res.Corte.MontoInicial;
+            FeedbackMsg = "Fondo inicial actualizado correctamente.";
+            await RecalcularBalance();
+        }
+        else
+        {
+            FeedbackMsg = res.Message;
+        }
+    }
+
+    private void LimpiarConteo()
+    {
+        Desglose = new DesgloseDenominacionDto();
+        _ = RecalcularBalance();
+    }
+
+    private async Task ProcederCorteX()
+    {
+        if (Corte == null) return;
+        isProcessing = true;
+        try
+        {
+            var resumen = await CashRegisterService.GenerarResumenCorteAsync(Corte.IdCorte, "CORTE X", Desglose);
+            await Cerrar();
+            if (OnCorteListoParaImprimir.HasDelegate)
+            {
+                await OnCorteListoParaImprimir.InvokeAsync(resumen);
+            }
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task ProcederCierreZ()
+    {
+        if (Corte == null) return;
+        isProcessing = true;
+        try
+        {
+            decimal contado = Desglose.TotalFisicoContado;
+            decimal esperado = ResumenCalculado?.EfectivoEsperado ?? 0m;
+            decimal diff = contado - esperado;
+
+            var res = await CashRegisterService.CerrarCajaAsync(Corte.IdCorte, contado, diff);
+            if (res.Success)
+            {
+                var resumen = await CashRegisterService.GenerarResumenCorteAsync(Corte.IdCorte, "CORTE Z", Desglose);
+                await Cerrar();
+                await OnCajaCerrada.InvokeAsync();
+                if (OnCorteListoParaImprimir.HasDelegate)
+                {
+                    await OnCorteListoParaImprimir.InvokeAsync(resumen);
+                }
+            }
+            else
+            {
+                FeedbackMsg = res.Message;
+            }
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task Cerrar()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

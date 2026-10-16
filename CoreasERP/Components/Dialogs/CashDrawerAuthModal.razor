@@ -1,0 +1,241 @@
+@inject IAuthService AuthService
+@inject IPrintService PrintService
+@inject ISettingsService SettingsService
+@inject ICashRegisterService CashRegisterService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" style="z-index: 1100;" @onclick="Close">
+        <div class="modal-content-custom" @onclick:stopPropagation="true" style="max-width: 520px;">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center text-white"
+                 style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                        <path d="M7 15h0.01"></path>
+                        <path d="M2 10h20"></path>
+                    </svg>
+                    <div>
+                        <h6 class="mb-0 fw-bold text-white">Apertura Manual de Gaveta</h6>
+                        <small class="text-slate-300" style="font-size: 11px; opacity: 0.85;">
+                            Seguridad de Caja: Doble Autorización Requerida
+                        </small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" @onclick="Close" title="Cerrar (Esc)"></button>
+            </div>
+
+            <div class="p-4">
+                <!-- Paso 1: Cajero -->
+                <div class="card bg-light border p-3 rounded-3 mb-3">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="badge bg-primary rounded-pill px-2 py-1" style="font-size: 11px;">Paso 1</span>
+                        <span class="fw-bold small text-dark">Identidad del Cajero en Turno</span>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small text-muted mb-1">Cajero Activo:</label>
+                        <div class="fw-semibold text-dark small bg-white p-2 border rounded">
+                            @(AuthService.CurrentUser?.Nombre ?? "Cajero de Turno") (@(AuthService.CurrentUser?.NombreUsuario ?? "usuario"))
+                        </div>
+                    </div>
+                    <div>
+                        <label class="form-label small fw-semibold mb-1">Contraseña del Cajero *</label>
+                        <input type="password" class="form-control form-control-sm"
+                               placeholder="Ingrese su contraseña de cajero"
+                               @bind="cajeroPassword" @bind:event="oninput" />
+                    </div>
+                </div>
+
+                <!-- Paso 2: Administrador / Supervisor -->
+                <div class="card bg-light border p-3 rounded-3 mb-3">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="badge bg-success rounded-pill px-2 py-1" style="font-size: 11px; background-color: #15803D !important;">Paso 2</span>
+                        <span class="fw-bold small text-dark">Autorización de Administrador / Supervisor</span>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold mb-1">Usuario Admin *</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   placeholder="Ej. admin"
+                                   @bind="adminUsername" @bind:event="oninput" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold mb-1">Contraseña Admin *</label>
+                            <input type="password" class="form-control form-control-sm"
+                                   placeholder="Contraseña"
+                                   @bind="adminPassword" @bind:event="oninput" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Motivo de la Apertura -->
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold mb-1">Motivo de Apertura *</label>
+                    <div class="d-flex gap-1 mb-2 flex-wrap">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 11px;"
+                                @onclick='() => motivo = "Dar cambio / sencillo al cliente"'>
+                            Cambio / Sencillo
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 11px;"
+                                @onclick='() => motivo = "Ingreso de efectivo / fondo auxiliar"'>
+                            Ingreso Fondo
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 11px;"
+                                @onclick='() => motivo = "Arqueo físico / revisión de supervisor"'>
+                            Arqueo Físico
+                        </button>
+                    </div>
+                    <input type="text" class="form-control form-control-sm"
+                           placeholder="Ej. Dar cambio de billete de $20 o ingreso de sencillo"
+                           @bind="motivo" @bind:event="oninput" />
+                </div>
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mb-0">
+                        @ErrorMessage
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(SuccessMessage))
+                {
+                    <div class="alert alert-success py-2 small mb-0">
+                        @SuccessMessage
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="Close" disabled="@isProcessing">
+                    Cancelar
+                </button>
+                <button type="button" class="btn text-white btn-sm px-3 shadow-sm d-flex align-items-center gap-1"
+                        style="background-color: #15803D; border-color: #15803D;"
+                        @onclick="ProcesarApertura" disabled="@isProcessing">
+                    @if (isProcessing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Verificando y Abriendo...</span>
+                    }
+                    else
+                    {
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-1-1l2 2M3 22l8.5-8.5M14 6l3 3M9 11l3 3M11 9l3 3"/></svg>
+                        <span>Autorizar y Abrir Gaveta</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback OnOpened { get; set; }
+
+    private string cajeroPassword = "";
+    private string adminUsername = "";
+    private string adminPassword = "";
+    private string motivo = "Cambio de efectivo / dar sencillo";
+
+    private bool isProcessing = false;
+    private string? ErrorMessage;
+    private string? SuccessMessage;
+    private bool _wasOpen;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            _wasOpen = true;
+            cajeroPassword = "";
+            adminUsername = "";
+            adminPassword = "";
+            motivo = "Cambio de efectivo / dar sencillo";
+            ErrorMessage = null;
+            SuccessMessage = null;
+            isProcessing = false;
+        }
+        else if (!IsOpen)
+        {
+            _wasOpen = false;
+        }
+    }
+
+    private async Task ProcesarApertura()
+    {
+        ErrorMessage = null;
+        SuccessMessage = null;
+
+        var currentCajero = AuthService.CurrentUser;
+        if (currentCajero == null)
+        {
+            ErrorMessage = "No hay una sesión activa de cajero.";
+            return;
+        }
+
+        // 1. Validar Contraseña del Cajero
+        if (string.IsNullOrWhiteSpace(cajeroPassword))
+        {
+            ErrorMessage = "Por favor ingrese la contraseña del cajero en turno.";
+            return;
+        }
+
+        isProcessing = true;
+
+        bool cajeroOk = await AuthService.VerifyUserPasswordAsync(currentCajero.IdUsuario, cajeroPassword);
+        if (!cajeroOk)
+        {
+            ErrorMessage = "La contraseña del cajero es incorrecta.";
+            isProcessing = false;
+            return;
+        }
+
+        // 2. Validar Credenciales del Administrador / Supervisor
+        if (string.IsNullOrWhiteSpace(adminUsername) || string.IsNullOrWhiteSpace(adminPassword))
+        {
+            ErrorMessage = "Debe ingresar el usuario y la contraseña del Administrador o Supervisor.";
+            isProcessing = false;
+            return;
+        }
+
+        var adminResult = await AuthService.VerifySupervisorOrAdminCredentialsAsync(adminUsername, adminPassword);
+        if (!adminResult.Success || adminResult.SupervisorUser == null)
+        {
+            ErrorMessage = adminResult.Message;
+            isProcessing = false;
+            return;
+        }
+
+        // 3. Enviar pulso a la impresora para abrir la gaveta física
+        var config = await SettingsService.GetConfiguracionAsync();
+        var printResult = await PrintService.OpenCashDrawerAsync(config);
+
+        // 4. Registrar auditoría en Movimientos de Caja
+        var corteActivo = await CashRegisterService.GetCorteActivoAsync(currentCajero.IdUsuario);
+        string detalleAuditoria = $"Apertura manual por {currentCajero.Nombre}. Autorizada por: {adminResult.SupervisorUser.Nombre} ({adminResult.SupervisorUser.NombreUsuario}). Motivo: {motivo.Trim()}";
+
+        await CashRegisterService.RegistrarMovimientoCajaAsync(
+            currentCajero.IdUsuario,
+            "AperturaGaveta",
+            0.00m,
+            detalleAuditoria,
+            corteActivo?.IdCorte
+        );
+
+        isProcessing = false;
+        SuccessMessage = "¡Gaveta abierta exitosamente y movimiento registrado en auditoría!";
+        StateHasChanged();
+
+        await Task.Delay(1000);
+        await Close();
+        await OnOpened.InvokeAsync();
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        _wasOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

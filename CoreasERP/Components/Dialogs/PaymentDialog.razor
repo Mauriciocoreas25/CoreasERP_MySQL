@@ -1,0 +1,284 @@
+@inject IJSRuntime JSRuntime
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" tabindex="-1" @onkeydown="HandleModalKeyDown" @onclick="Close">
+        <div class="modal-content-custom" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 fw-bold">Procesar Cobro</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close" title="Cerrar [Esc]"></button>
+            </div>
+
+            <div class="p-4">
+                <!-- Total a Cobrar Destacado -->
+                <div class="text-center p-3 mb-3 bg-success bg-opacity-10 rounded-3 border border-success border-opacity-25">
+                    <div class="text-muted small fw-semibold text-uppercase">Total a Cobrar</div>
+                    <div class="fs-1 fw-bold text-success font-monospace">$@Total.ToString("F2")</div>
+                </div>
+
+                <!-- Método de Pago -->
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Método de Pago</label>
+                    <div class="d-flex gap-2">
+                        <button type="button" 
+                                class="btn flex-fill @(MetodoPago == "Efectivo" ? "btn-success fw-bold text-white" : "btn-outline-secondary")"
+                                style="@(MetodoPago == "Efectivo" ? "background-color: #15803d; border-color: #15803d;" : "")"
+                                @onclick='() => SetMetodo("Efectivo")'>
+                            Efectivo
+                        </button>
+                        <button type="button" 
+                                class="btn flex-fill @(MetodoPago == "Tarjeta" ? "btn-success fw-bold text-white" : "btn-outline-secondary")"
+                                style="@(MetodoPago == "Tarjeta" ? "background-color: #15803d; border-color: #15803d;" : "")"
+                                @onclick='() => SetMetodo("Tarjeta")'>
+                            Tarjeta
+                        </button>
+                        <button type="button" 
+                                class="btn flex-fill @(MetodoPago == "Transferencia" ? "btn-success fw-bold text-white" : "btn-outline-secondary")"
+                                style="@(MetodoPago == "Transferencia" ? "background-color: #15803d; border-color: #15803d;" : "")"
+                                @onclick='() => SetMetodo("Transferencia")'>
+                            Transferencia
+                        </button>
+                    </div>
+                </div>
+
+                @if (MetodoPago == "Efectivo")
+                {
+                    <!-- Pago con efectivo con Foco Automático y Confirmación por Enter / F10 -->
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">
+                            @(EsAnticipo ? "¿Monto del anticipo / abono inicial?" : "¿Con cuánto paga el cliente?")
+                        </label>
+                        <div class="input-group input-group-lg">
+                            <span class="input-group-text fw-bold">$</span>
+                            <input @ref="inputMontoRef"
+                                   type="number" 
+                                   step="0.01" 
+                                   min="0" 
+                                   class="form-control form-control-lg fw-bold text-success font-monospace" 
+                                   style="font-size: 1.6rem; border: 2px solid #15803d;"
+                                   @bind="PagoCon" 
+                                   @bind:event="oninput" 
+                                   @onkeydown="HandleInputMontoKeyDown"
+                                   onfocus="this.select()"
+                                   placeholder="0.00" />
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mt-1">
+                            <small class="text-muted" style="font-size: 11px;">
+                                Digite el efectivo y presione <strong>Enter</strong> o <strong>F10</strong> para cobrar.
+                            </small>
+                            <small class="text-muted" style="font-size: 11px;">
+                                <strong>Esc</strong> para cancelar
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- Atajos de billetes rápidos -->
+                    <div class="mb-3">
+                        <div class="small text-muted mb-2">Billetes Rápidos:</div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="bill-chip" @onclick="() => SetBillete(1)">$1</button>
+                            <button type="button" class="bill-chip" @onclick="() => SetBillete(5)">$5</button>
+                            <button type="button" class="bill-chip" @onclick="() => SetBillete(10)">$10</button>
+                            <button type="button" class="bill-chip" @onclick="() => SetBillete(20)">$20</button>
+                            <button type="button" class="bill-chip" @onclick="() => SetBillete(50)">$50</button>
+                            <button type="button" class="bill-chip" @onclick="() => SetBillete(100)">$100</button>
+                        </div>
+                    </div>
+
+                    <!-- Caja de Cambio / Saldo por Cobrar -->
+                    @if (EsAnticipo)
+                    {
+                        @if ((PagoCon ?? 0m) < Total)
+                        {
+                            <div class="p-3 rounded-3 bg-light border">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="fw-semibold text-dark">Anticipo / Abono Inicial:</span>
+                                    <span class="fs-5 fw-bold font-monospace text-success">$@((PagoCon ?? 0m).ToString("F2"))</span>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center border-top pt-1">
+                                    <span class="fw-semibold text-dark">Saldo por Cobrar (Crédito):</span>
+                                    <span class="fs-4 fw-bold font-monospace text-danger">$@((Total - (PagoCon ?? 0m)).ToString("F2"))</span>
+                                </div>
+                                <div class="small text-muted mt-1" style="font-size: 11px;">
+                                    * El saldo restante quedará registrado automáticamente como <strong>Cuenta por Cobrar</strong>.
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="p-3 rounded-3 bg-success bg-opacity-10 border border-success border-opacity-25 text-success">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="fw-semibold">Cambio a Devolver:</span>
+                                    <span class="fs-3 fw-bold font-monospace">${Cambio:F2}</span>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="p-3 rounded-3 @(IsMontoInsuficiente ? "bg-danger bg-opacity-10 border border-danger border-opacity-25 text-danger" : "bg-success bg-opacity-10 border border-success border-opacity-25 text-success")">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="fw-semibold">@(IsMontoInsuficiente ? "Monto Insuficiente:" : "Cambio a Devolver:")</span>
+                                <span class="fs-3 fw-bold font-monospace">
+                                    @(IsMontoInsuficiente ? $"Faltan ${(Total - (PagoCon ?? 0m)):F2}" : $"${Cambio:F2}")
+                                </span>
+                            </div>
+                        </div>
+                    }
+                }
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mt-3 mb-0">
+                        @ErrorMessage
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-between align-items-center">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="Close" disabled="@isProcessing">
+                    Cancelar [Esc]
+                </button>
+                <button type="button" 
+                        class="btn btn-success px-4 py-2 fw-bold shadow-sm d-flex align-items-center gap-2" 
+                        style="background-color: #15803d; border-color: #15803d;"
+                        @onclick="Confirmar" 
+                        disabled="@(isProcessing || (MetodoPago == "Efectivo" && IsMontoInsuficiente))">
+                    @if (isProcessing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Procesando...</span>
+                    }
+                    else
+                    {
+                        <span>Confirmar y Cobrar</span>
+                        <span class="badge bg-dark bg-opacity-25 text-white" style="font-size: 11px;">Enter / F10</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public decimal Total { get; set; }
+    [Parameter] public bool EsAnticipo { get; set; }
+    [Parameter] public EventCallback<(string Metodo, decimal PagoCon)> OnConfirm { get; set; }
+
+    private ElementReference inputMontoRef;
+    private string MetodoPago = "Efectivo";
+    private decimal? PagoCon;
+    private bool isProcessing;
+    private string? ErrorMessage;
+    private bool wasOpen = false;
+
+    private bool IsMontoInsuficiente => !EsAnticipo && MetodoPago == "Efectivo" && (PagoCon ?? 0m) < Total;
+    private decimal Cambio => (PagoCon ?? 0m) >= Total ? ((PagoCon ?? 0m) - Total) : 0.00m;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && !wasOpen)
+        {
+            MetodoPago = "Efectivo";
+            PagoCon = EsAnticipo ? 0m : Total;
+            ErrorMessage = null;
+            isProcessing = false;
+        }
+        wasOpen = IsOpen;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (IsOpen)
+        {
+            try
+            {
+                await Task.Delay(60);
+                await inputMontoRef.FocusAsync();
+            }
+            catch { }
+        }
+    }
+
+    private async Task HandleModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "F10")
+        {
+            await Confirmar();
+        }
+        else if (e.Key == "Escape")
+        {
+            await Close();
+        }
+    }
+
+    private async Task HandleInputMontoKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == "F10")
+        {
+            await Confirmar();
+        }
+        else if (e.Key == "Escape")
+        {
+            await Close();
+        }
+    }
+
+    private void SetMetodo(string metodo)
+    {
+        MetodoPago = metodo;
+        if (metodo != "Efectivo")
+        {
+            PagoCon = Total;
+        }
+        else
+        {
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(50);
+                try { await inputMontoRef.FocusAsync(); } catch { }
+            });
+        }
+    }
+
+    private async Task SetBillete(decimal monto)
+    {
+        PagoCon = monto;
+        await inputMontoRef.FocusAsync();
+    }
+
+    public async Task Confirmar()
+    {
+        if (isProcessing) return;
+
+        decimal montoPagar = PagoCon ?? (EsAnticipo ? 0m : Total);
+        if (montoPagar < 0)
+        {
+            ErrorMessage = "El monto ingresado no puede ser menor a cero.";
+            try { await inputMontoRef.FocusAsync(); } catch { }
+            return;
+        }
+
+        if (!EsAnticipo && MetodoPago == "Efectivo" && montoPagar < Total)
+        {
+            ErrorMessage = "El monto ingresado es menor al total a cobrar.";
+            try { await inputMontoRef.FocusAsync(); } catch { }
+            return;
+        }
+
+        isProcessing = true;
+        ErrorMessage = null;
+        await OnConfirm.InvokeAsync((MetodoPago, montoPagar));
+        isProcessing = false;
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

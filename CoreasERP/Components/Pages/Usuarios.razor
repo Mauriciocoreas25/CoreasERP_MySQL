@@ -1,0 +1,156 @@
+@page "/usuarios"
+@inject IUserService UserService
+@inject IAuthService AuthService
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1">Control de Personal & Usuarios</h4>
+        <p class="text-muted small mb-0">Gestión de accesos, roles de seguridad y contraseñas del sistema</p>
+    </div>
+    <button class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="NuevoUsuario">
+        + Nuevo Usuario
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(FeedbackMessage))
+{
+    <div class="alert @(isSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small mb-3">
+        @FeedbackMessage
+        <button type="button" class="btn-close py-2" @onclick="() => FeedbackMessage = null"></button>
+    </div>
+}
+
+<div class="card border-0 shadow-sm rounded-3">
+    <div class="card-body p-0">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary"></div>
+                <div class="mt-2 text-muted small">Cargando usuarios...</div>
+            </div>
+        }
+        else if (!ListaUsuarios.Any())
+        {
+            <div class="text-center py-5 text-muted">
+                <div class="fw-semibold">No se encontraron usuarios registrados</div>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Nombre Completo</th>
+                            <th>Usuario (Login)</th>
+                            <th>Rol Asignado</th>
+                            <th>Contacto</th>
+                            <th>Fecha Creación</th>
+                            <th class="text-center">Estado</th>
+                            <th class="text-center" style="width: 150px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var u in ListaUsuarios)
+                        {
+                            <tr>
+                                <td class="fw-semibold">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="user-avatar" style="width: 28px; height: 28px; font-size: 12px;">
+                                            @(u.Nombre.Length > 0 ? u.Nombre[0].ToString().ToUpper() : "U")
+                                        </div>
+                                        <span>@u.Nombre</span>
+                                    </div>
+                                </td>
+                                <td class="font-monospace text-success fw-bold">@u.NombreUsuario</td>
+                                <td>
+                                    <span class="badge @(u.Rol?.Nombre == "Administrador" ? "bg-success" : (u.Rol?.Nombre == "Supervisor" ? "bg-info text-dark" : "bg-secondary"))">
+                                        @(u.Rol?.Nombre ?? "-")
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="text-muted" style="font-size: 11px;">
+                                        @(u.Email ?? "Sin correo") • @(u.Telefono ?? "Sin tel")
+                                    </div>
+                                </td>
+                                <td class="text-muted">@u.FechaCreacion.ToString("dd/MM/yyyy")</td>
+                                <td class="text-center">
+                                    <span class="badge @(u.Estado ? "bg-success" : "bg-danger") bg-opacity-10 @(u.Estado ? "text-success" : "text-danger")">
+                                        @(u.Estado ? "Activo" : "Inactivo")
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <div class="d-inline-flex gap-1">
+                                        <button type="button" class="btn btn-outline-success btn-sm py-0 px-2 fw-semibold" 
+                                                title="Editar" @onclick="() => Editar(u)">
+                                            Editar
+                                        </button>
+                                        @if (u.IdUsuario != 1)
+                                        {
+                                            <button type="button" class="btn @(u.Estado ? "btn-outline-warning" : "btn-outline-success") btn-sm py-0 px-2 fw-semibold" 
+                                                    title="@(u.Estado ? "Desactivar" : "Activar")" @onclick="() => ToggleEstado(u)">
+                                                @(u.Estado ? "Desactivar" : "Activar")
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<UserModal @bind-IsOpen="isModalOpen" UsuarioEdit="@UsuarioSeleccionado" OnSaved="CargarUsuarios" />
+
+@code {
+    private List<Usuario> ListaUsuarios = new();
+    private bool isLoading = true;
+    private bool isModalOpen;
+    private Usuario? UsuarioSeleccionado;
+    private string? FeedbackMessage;
+    private bool isSuccess;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarUsuarios();
+    }
+
+    private async Task CargarUsuarios()
+    {
+        isLoading = true;
+        try
+        {
+            ListaUsuarios = await UserService.GetAllAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void NuevoUsuario()
+    {
+        UsuarioSeleccionado = null;
+        isModalOpen = true;
+    }
+
+    private void Editar(Usuario u)
+    {
+        UsuarioSeleccionado = u;
+        isModalOpen = true;
+    }
+
+    private async Task ToggleEstado(Usuario u)
+    {
+        var result = await UserService.ToggleEstadoAsync(u.IdUsuario);
+        isSuccess = result.Success;
+        FeedbackMessage = result.Message;
+        if (result.Success)
+        {
+            await CargarUsuarios();
+        }
+    }
+}

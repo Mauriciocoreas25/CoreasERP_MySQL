@@ -1,0 +1,171 @@
+@inject ICreditService CreditService
+@inject IAuthService AuthService
+
+@if (IsOpen && Cuenta != null)
+{
+    <div class="modal-backdrop-custom" @onclick="Close">
+        <div class="modal-content-custom" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 fw-bold">Registrar Abono a Cuenta</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close"></button>
+            </div>
+
+            <div class="p-4">
+                <!-- Resumen de la Cuenta -->
+                <div class="p-3 bg-light rounded-3 small mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-muted">Cliente:</span>
+                        <strong class="text-dark">@(Cuenta.Cliente?.Nombre ?? "Cliente")</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-muted">Comprobante de Venta:</span>
+                        <span class="font-monospace">@(Cuenta.Venta?.NumComprobante ?? "-")</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-muted">Monto Total Original:</span>
+                        <span>$@Cuenta.MontoTotal.ToString("F2")</span>
+                    </div>
+                    <div class="d-flex justify-content-between fw-bold border-top pt-2 mt-1 fs-6">
+                        <span class="text-danger">Saldo Pendiente Actual:</span>
+                        <span class="text-danger">$@Cuenta.SaldoPendiente.ToString("F2")</span>
+                    </div>
+                </div>
+
+                <!-- Monto a Abonar -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label small fw-semibold mb-0">Monto del Abono ($) *</label>
+                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none small text-success" @onclick="SetPagoTotal">
+                            Abonar Saldo Total
+                        </button>
+                    </div>
+                    <div class="input-group input-group-lg">
+                        <span class="input-group-text">$</span>
+                        <input type="number" step="0.01" min="0.01" max="@Cuenta.SaldoPendiente" 
+                               class="form-control fw-bold" @bind="MontoAbono" />
+                    </div>
+                </div>
+
+                <!-- Método de Pago -->
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Método de Pago</label>
+                    <select class="form-select form-select-sm" @bind="MetodoPago">
+                        <option value="Efectivo">Efectivo</option>
+                        <option value="Transferencia">Transferencia Bancaria</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Tarjeta">Tarjeta</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Notas o Referencia (Opcional)</label>
+                    <input type="text" class="form-control form-control-sm" @bind="Notas" placeholder="N° de transferencia o recibo físico" />
+                </div>
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mb-0">
+                        @ErrorMessage
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="Close" disabled="@isSaving">Cancelar</button>
+                <button type="button" class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="GuardarAbono" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Guardando...</span>
+                    }
+                    else
+                    {
+                        <span>Registrar Abono</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public CuentaCobrar? Cuenta { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private decimal MontoAbono;
+    private string MetodoPago = "Efectivo";
+    private string? Notas;
+    private bool isSaving;
+    private string? ErrorMessage;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && Cuenta != null)
+        {
+            MontoAbono = Cuenta.SaldoPendiente;
+            MetodoPago = "Efectivo";
+            Notas = null;
+            ErrorMessage = null;
+            isSaving = false;
+        }
+    }
+
+    private void SetPagoTotal()
+    {
+        if (Cuenta != null)
+        {
+            MontoAbono = Cuenta.SaldoPendiente;
+        }
+    }
+
+    private async Task GuardarAbono()
+    {
+        if (Cuenta == null) return;
+
+        if (MontoAbono <= 0)
+        {
+            ErrorMessage = "El monto debe ser mayor a cero.";
+            return;
+        }
+
+        if (MontoAbono > Cuenta.SaldoPendiente)
+        {
+            ErrorMessage = $"El abono excede el saldo pendiente (${Cuenta.SaldoPendiente:F2}).";
+            return;
+        }
+
+        isSaving = true;
+        ErrorMessage = null;
+
+        int idUsuario = AuthService.CurrentUser?.IdUsuario ?? 1;
+
+        var result = await CreditService.RegistrarAbonoAsync(
+            Cuenta.IdCuentaCobrar,
+            idUsuario,
+            MontoAbono,
+            MetodoPago,
+            Notas);
+
+        isSaving = false;
+
+        if (result.Success)
+        {
+            await Close();
+            await OnSaved.InvokeAsync();
+        }
+        else
+        {
+            ErrorMessage = result.Message;
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

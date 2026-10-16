@@ -1,0 +1,151 @@
+@inject IUserService UserService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" @onclick="Close">
+        <div class="modal-content-custom" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                    <h6 class="mb-0 fw-bold">@(Model.IdUsuario == 0 ? "Nuevo Usuario del Sistema" : "Editar Usuario")</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close"></button>
+            </div>
+
+            <div class="p-4">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Rol de Acceso *</label>
+                    <select class="form-select form-select-sm" @bind="Model.IdRol">
+                        <option value="0">-- Seleccionar Rol --</option>
+                        @foreach (var r in Roles)
+                        {
+                            <option value="@r.IdRol">@r.Nombre</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Nombre de Usuario (Login) *</label>
+                        <input type="text" class="form-control form-control-sm font-monospace" @bind="Model.NombreUsuario" placeholder="Ej. jperez" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Nombre Completo *</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.Nombre" placeholder="Ej. Juan Pérez" />
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Correo Electrónico</label>
+                        <input type="email" class="form-control form-control-sm" @bind="Model.Email" placeholder="usuario@correo.com" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Teléfono</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.Telefono" placeholder="7000-0000" />
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">
+                        @(Model.IdUsuario == 0 ? "Contraseña *" : "Nueva Contraseña (dejar vacío si no desea cambiarla)")
+                    </label>
+                    <input type="password" class="form-control form-control-sm" @bind="NuevaClave" placeholder="••••••••" />
+                </div>
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mb-0">
+                        @ErrorMessage
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="Close" disabled="@isSaving">Cancelar</button>
+                <button type="button" class="btn text-white btn-sm px-3" style="background-color: #15803D; border-color: #15803D;" @onclick="Guardar" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Guardando...</span>
+                    }
+                    else
+                    {
+                        <span>Guardar Usuario</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public Usuario? UsuarioEdit { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private Usuario Model = new();
+    private List<Rol> Roles = new();
+    private string NuevaClave = "";
+    private bool isSaving;
+    private string? ErrorMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen)
+        {
+            Roles = await UserService.GetRolesAsync();
+            NuevaClave = "";
+            ErrorMessage = null;
+            isSaving = false;
+
+            if (UsuarioEdit != null && UsuarioEdit.IdUsuario > 0)
+            {
+                Model = new Usuario
+                {
+                    IdUsuario = UsuarioEdit.IdUsuario,
+                    IdRol = UsuarioEdit.IdRol,
+                    NombreUsuario = UsuarioEdit.NombreUsuario,
+                    Nombre = UsuarioEdit.Nombre,
+                    Email = UsuarioEdit.Email,
+                    Telefono = UsuarioEdit.Telefono,
+                    Estado = UsuarioEdit.Estado
+                };
+            }
+            else
+            {
+                Model = new Usuario
+                {
+                    IdRol = Roles.FirstOrDefault()?.IdRol ?? 0,
+                    Estado = true
+                };
+            }
+        }
+    }
+
+    private async Task Guardar()
+    {
+        isSaving = true;
+        ErrorMessage = null;
+
+        var result = await UserService.SaveAsync(Model, string.IsNullOrWhiteSpace(NuevaClave) ? null : NuevaClave);
+        isSaving = false;
+
+        if (result.Success)
+        {
+            await Close();
+            await OnSaved.InvokeAsync();
+        }
+        else
+        {
+            ErrorMessage = result.Message;
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

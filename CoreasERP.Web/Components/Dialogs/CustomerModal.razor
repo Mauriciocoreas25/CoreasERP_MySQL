@@ -1,0 +1,192 @@
+@inject ICustomerService CustomerService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" @onclick="Close">
+        <div class="modal-content-custom large" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 fw-bold">@(Model.IdCliente == 0 ? "Registrar Cliente" : "Editar Cliente")</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close"></button>
+            </div>
+
+            <div class="p-4">
+                <!-- Tipo de Persona -->
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Tipo de Persona</label>
+                    <div class="d-flex gap-2">
+                        <button type="button" 
+                                class="btn btn-sm flex-fill @(Model.TipoPersona == "Natural" ? "btn-success text-white fw-bold" : "btn-outline-secondary")"
+                                style="@(Model.TipoPersona == "Natural" ? "background-color: #15803d; border-color: #15803d;" : "")"
+                                @onclick='() => SetTipo("Natural")'>
+                            Persona Natural
+                        </button>
+                        <button type="button" 
+                                class="btn btn-sm flex-fill @(Model.TipoPersona == "Juridica" ? "btn-success text-white fw-bold" : "btn-outline-secondary")"
+                                style="@(Model.TipoPersona == "Juridica" ? "background-color: #15803d; border-color: #15803d;" : "")"
+                                @onclick='() => SetTipo("Juridica")'>
+                            Empresa (Persona Jurídica)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <!-- Nombre / Razón Social -->
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">
+                            @(Model.TipoPersona == "Natural" ? "Nombre Completo *" : "Razón Social de la Empresa *")
+                        </label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.Nombre" 
+                               placeholder="@(Model.TipoPersona == "Natural" ? "Ej. Juan Carlos Pérez" : "Ej. Distribuidora del Valle S.A. de C.V.")" />
+                    </div>
+
+                    <!-- Tipo y Número de Documento -->
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Tipo Documento</label>
+                        <select class="form-select form-select-sm" @bind="Model.TipoDocumento">
+                            <option value="DUI">DUI</option>
+                            <option value="NIT">NIT</option>
+                            <option value="Pasaporte">Pasaporte</option>
+                        </select>
+                    </div>
+
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small fw-semibold">Número de Documento</label>
+                        <input type="text" class="form-control form-control-sm font-monospace" @bind="Model.NumDocumento" 
+                               placeholder="@(Model.TipoPersona == "Natural" ? "00000000-0" : "0614-010190-101-1")" />
+                    </div>
+
+                    @if (Model.TipoPersona == "Juridica")
+                    {
+                        <!-- Datos Fiscales de Empresa -->
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">NRC (Registro de Contribuyente)</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" @bind="Model.Nrc" placeholder="Ej. 123456-7" />
+                        </div>
+
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small fw-semibold">Giro Comercial / Actividad Económica</label>
+                            <input type="text" class="form-control form-control-sm" @bind="Model.Giro" placeholder="Ej. Comercio al por menor" />
+                        </div>
+                    }
+
+                    <!-- Contacto -->
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Teléfono</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.Telefono" placeholder="7000-0000" />
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Correo Electrónico</label>
+                        <input type="email" class="form-control form-control-sm" @bind="Model.Email" placeholder="cliente@correo.com" />
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Dirección</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.Direccion" placeholder="Dirección completa del cliente" />
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mt-3 mb-0">
+                        @ErrorMessage
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="Close" disabled="@isSaving">Cancelar</button>
+                <button type="button" class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="Guardar" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Guardando...</span>
+                    }
+                    else
+                    {
+                        <span>Guardar Cliente</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public Cliente? ClienteEdit { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private Cliente Model = new();
+    private bool isSaving;
+    private string? ErrorMessage;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen)
+        {
+            if (ClienteEdit != null && ClienteEdit.IdCliente > 0)
+            {
+                Model = new Cliente
+                {
+                    IdCliente = ClienteEdit.IdCliente,
+                    TipoPersona = ClienteEdit.TipoPersona,
+                    Nombre = ClienteEdit.Nombre,
+                    TipoDocumento = ClienteEdit.TipoDocumento,
+                    NumDocumento = ClienteEdit.NumDocumento,
+                    Telefono = ClienteEdit.Telefono,
+                    Email = ClienteEdit.Email,
+                    Direccion = ClienteEdit.Direccion,
+                    Nrc = ClienteEdit.Nrc,
+                    Giro = ClienteEdit.Giro
+                };
+            }
+            else
+            {
+                Model = new Cliente { TipoPersona = "Natural", TipoDocumento = "DUI" };
+            }
+            ErrorMessage = null;
+            isSaving = false;
+        }
+    }
+
+    private void SetTipo(string tipo)
+    {
+        Model.TipoPersona = tipo;
+        Model.TipoDocumento = tipo == "Juridica" ? "NIT" : "DUI";
+    }
+
+    private async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(Model.Nombre))
+        {
+            ErrorMessage = "El nombre o razón social es obligatorio.";
+            return;
+        }
+
+        isSaving = true;
+        ErrorMessage = null;
+
+        var result = await CustomerService.SaveAsync(Model);
+        isSaving = false;
+
+        if (result.Success)
+        {
+            await Close();
+            await OnSaved.InvokeAsync();
+        }
+        else
+        {
+            ErrorMessage = result.Message;
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

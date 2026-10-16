@@ -1,0 +1,128 @@
+@inject IConnectionConfigService ConnectionConfig
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" @onclick="Close">
+        <div class="modal-content-custom" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0 fw-bold">Configuración de Conexión SQL Server</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close"></button>
+            </div>
+
+            <div class="p-4">
+                <p class="small text-muted mb-3">
+                    Configura los parámetros para conectarte a tu instancia de SQL Server local o en red sin necesidad de internet.
+                </p>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Cadena de Conexión (Connection String)</label>
+                    <textarea class="form-control font-monospace small" rows="3" @bind="ConnectionString"></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Atajos Rápidos:</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetSqlExpress">
+                            SQLEXPRESS (.\SQLEXPRESS)
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalDb">
+                            LocalDB (MSSQLLocalDB)
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalhost">
+                            Localhost (127.0.0.1)
+                        </button>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(TestMessage))
+                {
+                    <div class="alert @(TestSuccess ? "alert-success" : "alert-danger") py-2 small mb-0">
+                        @(TestSuccess ? "Conexión exitosa: " : "Error: ") @TestMessage
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-between align-items-center">
+                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="TestConnection" disabled="@isTesting">
+                    @if (isTesting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Probando...</span>
+                    }
+                    else
+                    {
+                        <span>Probar Conexión</span>
+                    }
+                </button>
+
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="Close">Cancelar</button>
+                    <button type="button" class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="Save">Guardar y Aplicar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private string ConnectionString = "";
+    private string? TestMessage;
+    private bool TestSuccess;
+    private bool isTesting;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen)
+        {
+            ConnectionString = ConnectionConfig.GetConnectionString();
+            TestMessage = null;
+        }
+    }
+
+    private void SetSqlExpress()
+    {
+        ConnectionString = @"Server=.\SQLEXPRESS;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+    }
+
+    private void SetLocalDb()
+    {
+        ConnectionString = @"Server=(localdb)\MSSQLLocalDB;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+    }
+
+    private void SetLocalhost()
+    {
+        ConnectionString = @"Server=localhost;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+    }
+
+    private async Task TestConnection()
+    {
+        isTesting = true;
+        TestMessage = null;
+        StateHasChanged();
+
+        var result = await ConnectionConfig.TestConnectionAsync(ConnectionString);
+        TestSuccess = result.Success;
+        TestMessage = result.Message;
+        isTesting = false;
+    }
+
+    private async Task Save()
+    {
+        ConnectionConfig.SetConnectionString(ConnectionString);
+        await Close();
+        await OnSaved.InvokeAsync();
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

@@ -1,0 +1,200 @@
+@page "/ventas"
+@inject IPosService PosService
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1">Historial de Ventas & Facturación</h4>
+        <p class="text-muted small mb-0">Consulta de comprobantes emitidos, auditoría y reimpresión de tickets</p>
+    </div>
+</div>
+
+<!-- Filtros de Búsqueda -->
+<div class="card border-0 shadow-sm p-3 mb-4 bg-white rounded-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-12 col-md-4">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-white text-muted">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                    </svg>
+                </span>
+                <input type="text" class="form-control" placeholder="Buscar por ticket o cliente..." 
+                       @bind="SearchTerm" @bind:event="oninput" @onkeyup="CargarVentas" />
+                @if (!string.IsNullOrEmpty(SearchTerm))
+                {
+                    <button class="btn btn-outline-secondary" type="button" @onclick="LimpiarBusqueda">&times;</button>
+                }
+            </div>
+        </div>
+
+        <div class="col-12 col-md-3">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text bg-white text-muted">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/>
+                    </svg>
+                </span>
+                <input type="date" class="form-control" @bind="FechaFiltro" @bind:after="CargarVentas" />
+            </div>
+        </div>
+
+        <div class="col-12 col-md-2">
+            <button class="btn btn-outline-secondary btn-sm w-100" @onclick="LimpiarFecha">
+                Todas las Fechas
+            </button>
+        </div>
+
+        <div class="col-12 col-md-3 text-md-end">
+            <span class="badge bg-light text-secondary border small">
+                Total Registros: @ListaVentas.Count
+            </span>
+        </div>
+    </div>
+</div>
+
+<!-- Tabla de Ventas -->
+<div class="card border-0 shadow-sm rounded-3">
+    <div class="card-body p-0">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-success" role="status"></div>
+                <div class="mt-2 text-muted small">Cargando comprobantes...</div>
+            </div>
+        }
+        else if (!ListaVentas.Any())
+        {
+            <div class="text-center py-5 text-muted">
+                <div class="fw-semibold">No se encontraron comprobantes registrados</div>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Comprobante</th>
+                            <th>Fecha y Hora</th>
+                            <th>Cliente</th>
+                            <th>Cajero</th>
+                            <th>Tipo</th>
+                            <th>Método Pago</th>
+                            <th class="text-end">Total</th>
+                            <th class="text-center">Estado</th>
+                            <th class="text-center" style="width: 100px;">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var v in ListaVentas)
+                        {
+                            <tr>
+                                <td class="fw-bold font-monospace text-success">@v.NumComprobante</td>
+                                <td class="text-muted">@v.FechaHora.ToString("dd/MM/yyyy hh:mm tt")</td>
+                                <td class="fw-semibold">@(v.Cliente?.Nombre ?? "Consumidor Final")</td>
+                                <td class="text-muted">@(v.Usuario?.Nombre ?? "-")</td>
+                                <td><span class="badge bg-light text-dark border">@v.TipoComprobante</span></td>
+                                <td>@v.MetodoPago</td>
+                                <td class="text-end fw-bold fs-6">$@v.Total.ToString("F2")</td>
+                                <td class="text-center">
+                                    <span class="badge @(v.Estado == "Completada" ? "badge-completed" : "badge-cancelled")">
+                                        @v.Estado
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <button type="button" class="btn btn-outline-success btn-sm py-0 px-2 fw-semibold" 
+                                            @onclick="() => VerDetalle(v)">
+                                        Ver
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Modal Detalle de Venta -->
+<SaleDetailModal @bind-IsOpen="isDetailOpen" 
+                 Venta="@VentaSeleccionada" 
+                 OnReimprimir="AbrirReimpresion" 
+                 OnVerCarta="AbrirDocumentoCarta"
+                 OnAnulada="CargarVentas" />
+
+<!-- Modal Previsualización e Impresión de Ticket Térmico -->
+<TicketPreviewDialog @bind-IsOpen="isTicketOpen" 
+                     Venta="@VentaSeleccionada" 
+                     OnVerCarta="AbrirDocumentoCarta" />
+
+<!-- Modal Factura Oficial Tamaño Carta (PDF / Oficina) -->
+<InvoiceLetterModal @bind-IsOpen="isInvoiceLetterOpen" 
+                    Venta="@VentaSeleccionada" 
+                    OnImprimirTermico="AbrirReimpresion" />
+
+@code {
+    private List<Venta> ListaVentas = new();
+    private string SearchTerm = "";
+    private DateTime? FechaFiltro = DateTime.Today;
+    private bool isLoading = true;
+
+    private bool isDetailOpen;
+    private bool isTicketOpen;
+    private bool isInvoiceLetterOpen;
+    private Venta? VentaSeleccionada;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarVentas();
+    }
+
+    private async Task CargarVentas()
+    {
+        isLoading = true;
+        try
+        {
+            ListaVentas = await PosService.GetVentasAsync(FechaFiltro, SearchTerm) ?? new();
+        }
+        catch
+        {
+            ListaVentas = new();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LimpiarBusqueda()
+    {
+        SearchTerm = "";
+        await CargarVentas();
+    }
+
+    private async Task LimpiarFecha()
+    {
+        FechaFiltro = null;
+        await CargarVentas();
+    }
+
+    private void VerDetalle(Venta v)
+    {
+        VentaSeleccionada = v;
+        isDetailOpen = true;
+    }
+
+    private void AbrirReimpresion(Venta v)
+    {
+        VentaSeleccionada = v;
+        isTicketOpen = true;
+    }
+
+    private void AbrirDocumentoCarta(Venta v)
+    {
+        VentaSeleccionada = v;
+        isDetailOpen = false;
+        isTicketOpen = false;
+        isInvoiceLetterOpen = true;
+    }
+}

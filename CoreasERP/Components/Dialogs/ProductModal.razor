@@ -1,0 +1,332 @@
+@inject IProductService ProductService
+@inject ICategoryService CategoryService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" @onclick="Close">
+        <div class="modal-content-custom large" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                    <h6 class="mb-0 fw-bold">@(Model.IdProducto == 0 ? "Registrar Nuevo Producto" : "Editar Producto")</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close"></button>
+            </div>
+
+            <div class="p-4">
+                <div class="row g-3">
+                    <!-- Categoría -->
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Categoría *</label>
+                        <select class="form-select form-select-sm" @bind="Model.IdCategoria">
+                            <option value="0">-- Seleccionar Categoría --</option>
+                            @foreach (var c in Categorias)
+                            {
+                                <option value="@c.IdCategoria">@c.Nombre</option>
+                            }
+                        </select>
+                    </div>
+
+                    <!-- Código de Barras con Generador -->
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Código de Barras *</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control font-monospace" @bind="Model.Codigo" placeholder="Ej. 7501055312108" />
+                            <button type="button" class="btn btn-outline-secondary" @onclick="GenerarCodigo" title="Generar código aleatorio de 13 dígitos">
+                                Generar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Nombre del Producto -->
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Nombre del Producto *</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.Nombre" placeholder="Ej. Coca Cola 500ml" />
+                    </div>
+
+                    <!-- Descripción -->
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Descripción (Opcional)</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Model.Descripcion" placeholder="Detalles o presentación del artículo" />
+                    </div>
+
+                    <!-- Precios -->
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Precio Compra ($) *</label>
+                        <input type="number" step="0.01" min="0" class="form-control form-control-sm" 
+                               @bind="Model.PrecioCompra" 
+                               @bind:after="OnCantidadPorEmpaqueChanged" />
+                    </div>
+
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold">Precio Venta ($) *</label>
+                        <input type="number" step="0.01" min="0" class="form-control form-control-sm" @bind="Model.PrecioVenta" />
+                    </div>
+
+                    <!-- Margen Calculado -->
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold text-muted">Margen Unitario</label>
+                        <div class="form-control form-control-sm bg-light fw-bold @(MargenEstimado >= 20 ? "text-success" : (MargenEstimado > 0 ? "text-warning" : "text-danger"))">
+                            @MargenEstimado.ToString("F2")%
+                        </div>
+                    </div>
+
+                    <!-- Unidad de Medida y Venta a Granel -->
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Unidad de Medida *</label>
+                        <select class="form-select form-select-sm" @bind="Model.UnidadMedida">
+                            <option value="Unidad">Unidad (U / Pieza - Cat. 59 MH)</option>
+                            <option value="Sobre">Sobre (Cat. 59 MH)</option>
+                            <option value="Caja">Caja (Cat. 59 MH)</option>
+                            <option value="Paquete">Paquete (Cat. 59 MH)</option>
+                            <option value="Libra">Libra (lb - Cat. 26 MH)</option>
+                            <option value="Kilogramo">Kilogramo (kg - Cat. 24 MH)</option>
+                            <option value="Gramo">Gramo (g - Cat. 23 MH)</option>
+                        </select>
+                    </div>
+
+                    <div class="col-12 col-md-6 d-flex align-items-center">
+                        <div class="form-check form-switch pt-2">
+                            <input class="form-check-input" type="checkbox" id="chkEsGranel" @bind="Model.EsGranel" />
+                            <label class="form-check-label small fw-semibold text-dark" for="chkEsGranel">
+                                Venta Fraccionada / a Granel (Sobres / Caja / Peso)
+                            </label>
+                            <div class="text-muted" style="font-size: 11px;">
+                                Activa cálculo de costo fraccionado y atajo de Barra Espaciadora en el POS.
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (Model.EsGranel)
+                    {
+                        <div class="col-12">
+                            <div class="p-2 rounded bg-light border">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-12 col-md-4">
+                                        <label class="form-label small fw-semibold">Piezas por Empaque</label>
+                                        <input type="number" step="any" min="0.001" class="form-control form-control-sm text-center" 
+                                               @bind="Model.CantidadPorEmpaque" 
+                                               @bind:after="OnCantidadPorEmpaqueChanged"
+                                               placeholder="Ej: 24" />
+                                    </div>
+                                    <div class="col-12 col-md-4">
+                                        <label class="form-label small fw-semibold">Costo Granel Unitario ($)</label>
+                                        <input type="number" step="0.0001" min="0" class="form-control form-control-sm text-end" 
+                                               @bind="Model.CostoGranel" 
+                                               placeholder="@(CostoGranelEfectivo.ToString("F4"))" />
+                                    </div>
+                                    <div class="col-12 col-md-4">
+                                        <label class="form-label small fw-semibold text-success">Precio Venta Granel ($)</label>
+                                        <input type="number" step="0.01" min="0" class="form-control form-control-sm text-end fw-bold text-success" 
+                                               @bind="Model.PrecioGranel" placeholder="0.00" />
+                                    </div>
+                                    @if (MargenGranelEstimado.HasValue)
+                                    {
+                                        <div class="col-12 text-end">
+                                            <span class="badge @(MargenGranelEstimado.Value >= 20 ? "bg-success" : (MargenGranelEstimado.Value > 0 ? "bg-warning text-dark" : "bg-danger"))">
+                                                Margen Granel Real: @MargenGranelEstimado.Value.ToString("F1")%
+                                            </span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Stocks -->
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Stock Actual * (@Model.UnidadMedida)</label>
+                        <input type="number" step="@(Model.EsGranel ? "any" : "1")" min="0" class="form-control form-control-sm" @bind="Model.Stock" />
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Stock Mínimo (Alerta) * (@Model.UnidadMedida)</label>
+                        <input type="number" step="@(Model.EsGranel ? "any" : "1")" min="0" class="form-control form-control-sm" @bind="Model.StockMinimo" />
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mt-3 mb-0">
+                        @ErrorMessage
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="Close" disabled="@isSaving">
+                    Cancelar
+                </button>
+                <button type="button" class="btn text-white btn-sm px-3" style="background-color: #15803D; border-color: #15803D;" @onclick="Guardar" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Guardando...</span>
+                    }
+                    else
+                    {
+                        <span>Guardar Producto</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public Producto? ProductoEdit { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private Producto Model = new();
+    private List<Categoria> Categorias = new();
+    private bool isSaving;
+    private string? ErrorMessage;
+
+    private decimal MargenEstimado => Model.PrecioCompra > 0 
+        ? Math.Round(((Model.PrecioVenta - Model.PrecioCompra) / Model.PrecioCompra) * 100m, 2) 
+        : 0m;
+
+    private decimal CostoGranelEfectivo
+    {
+        get
+        {
+            if (Model.CostoGranel.HasValue && Model.CostoGranel.Value > 0)
+                return Model.CostoGranel.Value;
+            if (Model.CantidadPorEmpaque.HasValue && Model.CantidadPorEmpaque.Value > 0 && Model.PrecioCompra > 0)
+                return Math.Round(Model.PrecioCompra / Model.CantidadPorEmpaque.Value, 4);
+            return 0m;
+        }
+    }
+
+    private decimal? MargenGranelEstimado
+    {
+        get
+        {
+            var costo = CostoGranelEfectivo;
+            if (costo > 0 && Model.PrecioGranel.HasValue && Model.PrecioGranel.Value > 0)
+            {
+                return Math.Round(((Model.PrecioGranel.Value - costo) / costo) * 100m, 1);
+            }
+            return null;
+        }
+    }
+
+    private void OnCantidadPorEmpaqueChanged()
+    {
+        if (Model.CantidadPorEmpaque.HasValue && Model.CantidadPorEmpaque.Value > 0 && Model.PrecioCompra > 0)
+        {
+            Model.CostoGranel = Math.Round(Model.PrecioCompra / Model.CantidadPorEmpaque.Value, 4);
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen)
+        {
+            Categorias = await CategoryService.GetAllAsync();
+            if (ProductoEdit != null && ProductoEdit.IdProducto > 0)
+            {
+                Model = new Producto
+                {
+                    IdProducto = ProductoEdit.IdProducto,
+                    IdCategoria = ProductoEdit.IdCategoria,
+                    Codigo = ProductoEdit.Codigo,
+                    Nombre = ProductoEdit.Nombre,
+                    Descripcion = ProductoEdit.Descripcion,
+                    PrecioCompra = ProductoEdit.PrecioCompra,
+                    PrecioVenta = ProductoEdit.PrecioVenta,
+                    PrecioGranel = ProductoEdit.PrecioGranel,
+                    CostoGranel = ProductoEdit.CostoGranel,
+                    CantidadPorEmpaque = ProductoEdit.CantidadPorEmpaque ?? 1.00m,
+                    Stock = ProductoEdit.Stock,
+                    StockMinimo = ProductoEdit.StockMinimo,
+                    EsGranel = ProductoEdit.EsGranel,
+                    UnidadMedida = string.IsNullOrWhiteSpace(ProductoEdit.UnidadMedida) ? "Unidad" : ProductoEdit.UnidadMedida,
+                    Imagen = ProductoEdit.Imagen,
+                    Estado = ProductoEdit.Estado
+                };
+            }
+            else
+            {
+                Model = new Producto
+                {
+                    Stock = 0.000m,
+                    StockMinimo = 5.000m,
+                    PrecioCompra = 0.00m,
+                    PrecioVenta = 0.00m,
+                    PrecioGranel = null,
+                    CostoGranel = null,
+                    CantidadPorEmpaque = 1.00m,
+                    EsGranel = false,
+                    UnidadMedida = "Unidad",
+                    IdCategoria = Categorias.FirstOrDefault()?.IdCategoria ?? 0
+                };
+                GenerarCodigo();
+            }
+            ErrorMessage = null;
+            isSaving = false;
+        }
+    }
+
+    private void GenerarCodigo()
+    {
+        Model.Codigo = ProductService.GenerateRandomBarcode();
+    }
+
+    private async Task Guardar()
+    {
+        if (string.IsNullOrWhiteSpace(Model.Codigo))
+        {
+            ErrorMessage = "El código de barras es obligatorio.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Model.Nombre))
+        {
+            ErrorMessage = "El nombre del producto es obligatorio.";
+            return;
+        }
+
+        if (Model.IdCategoria <= 0)
+        {
+            ErrorMessage = "Debe seleccionar una categoría.";
+            return;
+        }
+
+        if (!Model.EsGranel && Model.PrecioVenta < Model.PrecioCompra)
+        {
+            ErrorMessage = "El precio de venta no puede ser menor al precio de compra.";
+            return;
+        }
+
+        if (Model.EsGranel && Model.PrecioGranel.HasValue && CostoGranelEfectivo > 0 && Model.PrecioGranel.Value < CostoGranelEfectivo)
+        {
+            ErrorMessage = $"El precio a granel (${Model.PrecioGranel.Value:F2}) no puede ser menor a su costo unitario (${CostoGranelEfectivo:F4}).";
+            return;
+        }
+
+        isSaving = true;
+        ErrorMessage = null;
+
+        var result = await ProductService.SaveAsync(Model);
+        isSaving = false;
+
+        if (result.Success)
+        {
+            await Close();
+            await OnSaved.InvokeAsync();
+        }
+        else
+        {
+            ErrorMessage = result.Message;
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

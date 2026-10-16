@@ -1,0 +1,141 @@
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+@inject IProductService ProductService
+@implements IDisposable
+
+<div class="sidebar-header">
+    <div class="sidebar-brand-title">Control de Inventario &amp; Ventas</div>
+    <div class="sidebar-brand-sub">Sistema General</div>
+</div>
+
+<div class="sidebar-section-title">MENÚ PRINCIPAL</div>
+
+<ul class="sidebar-nav">
+    @if (!AuthService.IsCajero)
+    {
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="" Match="NavLinkMatch.All">
+                <span>Inicio</span>
+            </NavLink>
+        </li>
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="usuarios">
+                <span>Administración Usuarios</span>
+            </NavLink>
+        </li>
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="clientes">
+                <span>Administración Clientes</span>
+            </NavLink>
+        </li>
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="inventario">
+                <span>Inventario Productos</span>
+                @if (lowStockCount > 0)
+                {
+                    <span class="badge-nav-count">@lowStockCount</span>
+                }
+            </NavLink>
+        </li>
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="compras">
+                <span>Compras</span>
+            </NavLink>
+        </li>
+    }
+
+    <li class="sidebar-item">
+        <NavLink class="sidebar-link" href="pos">
+            <span>POS - Punto de Ventas</span>
+        </NavLink>
+    </li>
+
+    @if (!AuthService.IsCajero)
+    {
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="cambios-precio">
+                <span>Cambio de Precios</span>
+            </NavLink>
+        </li>
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="promociones">
+                <span>Promociones y Ofertas</span>
+            </NavLink>
+        </li>
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="configuracion">
+                <span>Configuración</span>
+            </NavLink>
+        </li>
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="cuentas-cobrar">
+                <span>Cuentas por Cobrar</span>
+            </NavLink>
+        </li>
+        <li class="sidebar-item">
+            <NavLink class="sidebar-link" href="ventas">
+                <span>Historial de Ventas</span>
+            </NavLink>
+        </li>
+    }
+</ul>
+
+<div class="sidebar-footer-actions">
+    <button type="button" class="btn-cerrar-sistema" @onclick="CerrarSesion">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M7.5 1v7h1V1h-1z"/>
+            <path d="M3 8.812a4.999 4.999 0 0 1 2.578-4.375l-.485-.874A6 6 0 1 0 11 3.616l-.501.865A5 5 0 1 1 3 8.812z"/>
+        </svg>
+        <span>Cerrar Sistema</span>
+    </button>
+</div>
+
+<div class="sidebar-user-footer">
+    <div class="user-avatar">
+        @(AuthService.CurrentUser?.Nombre?.Length > 0 ? AuthService.CurrentUser.Nombre[0].ToString().ToUpper() : "U")
+    </div>
+    <div class="overflow-hidden">
+        <div class="user-name text-truncate">@(AuthService.CurrentUser?.Nombre ?? "Usuario")</div>
+        <div class="user-role">@(AuthService.CurrentUser?.Rol?.Nombre ?? "Personal")</div>
+    </div>
+</div>
+
+@code {
+    private int lowStockCount = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthService.OnAuthStateChanged += HandleAuthStateChanged;
+        try
+        {
+            var lowList = await ProductService.GetLowStockAsync();
+            lowStockCount = lowList?.Count ?? 0;
+        }
+        catch
+        {
+            lowStockCount = 0;
+        }
+    }
+
+    private void HandleAuthStateChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            try
+            {
+                StateHasChanged();
+            }
+            catch { }
+        });
+    }
+
+    public void Dispose()
+    {
+        AuthService.OnAuthStateChanged -= HandleAuthStateChanged;
+    }
+
+    private void CerrarSesion()
+    {
+        AuthService.Logout();
+    }
+}

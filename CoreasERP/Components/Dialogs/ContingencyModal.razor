@@ -1,0 +1,269 @@
+@using CoreasERP.Models.Dte
+@using CoreasERP.Services.Dte
+@inject IFelSvApiService FelSvApiService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" tabindex="-1" style="z-index: 1090;" @onclick="Cerrar">
+        <div class="modal-content-custom" style="max-width: 560px;" @onclick:stopPropagation="true">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center @(EstaEnContingencia ? "bg-warning text-dark" : "text-white")"
+                 style="@(EstaEnContingencia ? "" : "background-color: #14532D; border-bottom: 1px solid #114022;")">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    <h6 class="mb-0 fw-bold">Facturación Electrónica (FelSv) — Modo Contingencia</h6>
+                </div>
+                <button type="button" class="btn btn-sm text-reset p-0 border-0 bg-transparent fs-5 lh-1" @onclick="Cerrar">&times;</button>
+            </div>
+
+            <div class="p-4 bg-white">
+                <!-- Estado Actual -->
+                <div class="p-3 rounded-3 mb-3 @(EstaEnContingencia ? "bg-warning bg-opacity-10 border border-warning" : "bg-success bg-opacity-10 border border-success")">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small fw-semibold text-muted text-uppercase">Estado Operativo DTE</div>
+                            <div class="fs-6 fw-bold @(EstaEnContingencia ? "text-warning text-dark" : "text-success")">
+                                @(EstaEnContingencia ? "MODO CONTINGENCIA ACTIVO (DIFERIDO)" : "TRANSMISIÓN NORMAL EN TIEMPO REAL")
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-success d-flex align-items-center gap-1 fw-semibold" 
+                                @onclick="ProbarConexion" disabled="@isTesting">
+                            @if (isTesting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Probando...</span>
+                            }
+                            else
+                            {
+                                <span>Probar API</span>
+                            }
+                        </button>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(MensajeConexion))
+                    {
+                        <div class="small mt-2 p-2 rounded @(ConexionExitosa ? "bg-success bg-opacity-10 text-success" : "bg-danger bg-opacity-10 text-danger")">
+                            @MensajeConexion
+                        </div>
+                    }
+                </div>
+
+                @if (EstaEnContingencia)
+                {
+                    <div class="alert alert-warning small mb-3">
+                        <div><strong>Detalles del Evento Activo:</strong></div>
+                        <div><strong>Motivo (CAT-005):</strong> Código @CodigoMotivoActivo</div>
+                        @if (!string.IsNullOrEmpty(DescripcionMotivoActivo))
+                        {
+                            <div><strong>Descripción:</strong> @DescripcionMotivoActivo</div>
+                        }
+                        <div class="mt-2 text-muted">
+                            Los DTE emitidos se guardan localmente como <em>Contingencia_Pendiente</em>. Al finalizar la contingencia, FelSv firmará y transmitirá automáticamente los documentos en segundo plano.
+                        </div>
+                    </div>
+
+                    <div class="text-end">
+                        <button type="button" class="btn btn-success fw-bold px-4 shadow-sm" style="background-color: #15803d; border-color: #15803d;" @onclick="DetenerContingencia" disabled="@isSubmitting">
+                            @if (isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Cerrando contingencia...</span>
+                            }
+                            else
+                            {
+                                <span>Finalizar Contingencia y Transmitir Lote</span>
+                            }
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <p class="small text-muted mb-3">
+                        Active el <strong>Modo Contingencia</strong> si hay cortes de energía, falla de internet o indisponibilidad en los servidores del Ministerio de Hacienda.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Motivo de Contingencia (CAT-005):</label>
+                        <select class="form-select form-select-sm" @bind="CodigoMotivoSeleccionado">
+                            <option value="1">1 - No disponibilidad de los sistemas del emisor</option>
+                            <option value="2">2 - Falla de suministro de energía eléctrica</option>
+                            <option value="3">3 - Pérdida de conectividad a internet</option>
+                            <option value="4">4 - No disponibilidad de los sistemas de Hacienda</option>
+                            <option value="5">5 - Otro (especificar en descripción)</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Descripción / Justificación:</label>
+                        <input type="text" class="form-control form-control-sm" @bind="DescripcionMotivo" 
+                               placeholder="Ej: Pérdida temporal de enlace de internet en sucursal" />
+                    </div>
+
+                    <div class="text-end">
+                        <button type="button" class="btn btn-warning fw-bold px-4 shadow-sm text-dark" @onclick="IniciarContingencia" disabled="@isSubmitting">
+                            @if (isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                <span>Iniciando...</span>
+                            }
+                            else
+                            {
+                                <span>Activar Modo Contingencia</span>
+                            }
+                        </button>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(ErrorFeedback))
+                {
+                    <div class="alert alert-danger py-2 small mt-3 mb-0">
+                        @ErrorFeedback
+                    </div>
+                }
+            </div>
+
+            <div class="p-3 border-top bg-light text-end">
+                <button type="button" class="btn btn-secondary btn-sm px-4" @onclick="Cerrar">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback<bool> OnContingencyStatusChanged { get; set; }
+
+    private bool EstaEnContingencia = false;
+    private string CodigoMotivoActivo = "";
+    private string DescripcionMotivoActivo = "";
+    private string CodigoMotivoSeleccionado = "3";
+    private string DescripcionMotivo = "Pérdida de conectividad a internet en la sucursal";
+
+    private bool isTesting = false;
+    private bool isSubmitting = false;
+    private string? MensajeConexion;
+    private bool ConexionExitosa = false;
+    private string? ErrorFeedback;
+
+    private bool wasOpen = false;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && !wasOpen)
+        {
+            wasOpen = true;
+            ErrorFeedback = null;
+            MensajeConexion = null;
+            await ConsultarEstadoContingencia(notificarCambio: false);
+        }
+        else if (!IsOpen)
+        {
+            wasOpen = false;
+        }
+    }
+
+    private async Task ConsultarEstadoContingencia(bool notificarCambio = false)
+    {
+        try
+        {
+            var res = await FelSvApiService.ConsultarContingenciaActivaAsync();
+            bool estadoPrevio = EstaEnContingencia;
+            EstaEnContingencia = res.Active;
+            if (res.Active && res.EventDetails != null)
+            {
+                CodigoMotivoActivo = res.EventDetails.CodigoMotivo ?? "";
+                DescripcionMotivoActivo = res.EventDetails.DescripcionMotivo ?? "";
+            }
+            if (notificarCambio && estadoPrevio != EstaEnContingencia)
+            {
+                await OnContingencyStatusChanged.InvokeAsync(EstaEnContingencia);
+            }
+        }
+        catch { }
+    }
+
+    private async Task ProbarConexion()
+    {
+        isTesting = true;
+        MensajeConexion = null;
+        StateHasChanged();
+
+        try
+        {
+            var test = await FelSvApiService.ProbarConexionAsync();
+            ConexionExitosa = test.Online;
+            MensajeConexion = test.Message;
+        }
+        catch (Exception ex)
+        {
+            ConexionExitosa = false;
+            MensajeConexion = $"Error de comunicación: {ex.Message}";
+        }
+        finally
+        {
+            isTesting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task IniciarContingencia()
+    {
+        isSubmitting = true;
+        ErrorFeedback = null;
+        try
+        {
+            var res = await FelSvApiService.IniciarContingenciaAsync(CodigoMotivoSeleccionado, DescripcionMotivo);
+            if (res.Success)
+            {
+                await ConsultarEstadoContingencia(notificarCambio: true);
+            }
+            else
+            {
+                ErrorFeedback = res.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorFeedback = ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task DetenerContingencia()
+    {
+        isSubmitting = true;
+        ErrorFeedback = null;
+        try
+        {
+            var res = await FelSvApiService.DetenerContingenciaAsync();
+            if (res.Success)
+            {
+                await ConsultarEstadoContingencia(notificarCambio: true);
+            }
+            else
+            {
+                ErrorFeedback = res.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorFeedback = ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task Cerrar()
+    {
+        wasOpen = false;
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

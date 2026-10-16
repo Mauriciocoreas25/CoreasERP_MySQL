@@ -1,0 +1,354 @@
+@inject IAuthService AuthService
+@inject IPosService PosService
+@inject IPrintService PrintService
+@inject ISettingsService SettingsService
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" style="z-index: 1120;" @onclick="Cancelar">
+        <div class="modal-content-custom" @onclick:stopPropagation="true" style="max-width: 620px; max-height: 92vh; display: flex; flex-direction: column;">
+            <!-- Encabezado -->
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center text-white"
+                 style="background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%);">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                    </svg>
+                    <div>
+                        <h6 class="mb-0 fw-bold text-white">Salida de Inventario por Merma / Gasto Interno</h6>
+                        <small class="text-white-50" style="font-size: 11px;">
+                            Baja directa de productos cargados en el carrito valuada a COSTO
+                        </small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" @onclick="Cancelar" title="Cerrar (Esc)"></button>
+            </div>
+
+            <div class="p-3 p-md-4 bg-light" style="overflow-y: auto; flex: 1;">
+                <!-- 1. Lista de Productos a dar de baja -->
+                <div class="card border-0 shadow-sm rounded-3 mb-3 bg-white">
+                    <div class="card-header bg-white py-2 border-bottom d-flex justify-content-between align-items-center">
+                        <span class="fw-bold small text-dark">Artículos en Carrito a Dar de Baja (@Carrito.Count)</span>
+                        <span class="badge bg-danger bg-opacity-10 text-danger fw-semibold px-2 py-1" style="font-size: 11px;">
+                            Valuación a Costo de Compra
+                        </span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive" style="max-height: 180px; overflow-y: auto;">
+                            <table class="table table-sm table-hover align-middle mb-0" style="font-size: 12px;">
+                                <thead class="table-light sticky-top">
+                                    <tr>
+                                        <th>Código</th>
+                                        <th>Producto</th>
+                                        <th class="text-end">Cantidad</th>
+                                        <th class="text-end">Modo</th>
+                                        <th class="text-end">Costo Unit.</th>
+                                        <th class="text-end">Total Costo</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in Carrito)
+                                    {
+                                        <tr>
+                                            <td class="font-monospace text-muted small">@item.Codigo</td>
+                                            <td class="fw-semibold text-dark">@item.Nombre</td>
+                                            <td class="text-end fw-bold text-danger">
+                                                -@item.Cantidad.ToString("G29") @item.UnidadMedida
+                                                @if (item.EsGranel && item.CantidadPorEmpaque > 1)
+                                                {
+                                                    <div class="text-muted" style="font-size: 10px;">
+                                                        (= @item.CantidadBaseStock.ToString("G29") empaques)
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td class="text-end">
+                                                <span class="badge bg-light text-dark border" style="font-size: 10px;">
+                                                    @(item.EsGranel ? "Granel" : "Empaque")
+                                                </span>
+                                            </td>
+                                            <td class="text-end font-monospace small">
+                                                $@item.CostoUnitario.ToString("N2")
+                                            </td>
+                                            <td class="text-end fw-bold text-danger font-monospace">
+                                                $@item.CostoSubtotal.ToString("N2")
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-light py-2 px-3 border-top d-flex justify-content-between align-items-center">
+                        <span class="fw-bold small text-dark">Pérdida Contable Total a Costo:</span>
+                        <span class="fw-bold text-danger font-monospace fs-6">
+                            $@Carrito.Sum(i => i.CostoSubtotal).ToString("N2")
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 2. Motivo y Observaciones -->
+                <div class="card bg-white border p-3 rounded-3 mb-3 shadow-sm">
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-dark mb-1">Motivo / Tipo de Salida *</label>
+                        <select class="form-select form-select-sm fw-semibold" @bind="motivoSeleccionado">
+                            <option value="Merma por plagas / roedores">Merma por plagas / roedores</option>
+                            <option value="Producto dañado / roto / golpeado">Producto dañado / roto / golpeado</option>
+                            <option value="Producto vencido / caducidad">Producto vencido / caducidad</option>
+                            <option value="Consumo interno / Gasto operativo de tienda">Consumo interno / Gasto operativo de tienda</option>
+                            <option value="Claim / Reclamo y devolución a proveedor">Claim / Reclamo y devolución a proveedor</option>
+                            <option value="Ajuste por diferencia de arqueo/inventario">Ajuste por diferencia de arqueo/inventario</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="form-label small text-muted mb-1">Detalle u Observación Adicional (Opcional):</label>
+                        <input type="text" class="form-control form-control-sm"
+                               placeholder="Ej. Paquete roto durante estiba o insumos para limpieza de tienda"
+                               @bind="notaAdicional" />
+                    </div>
+                </div>
+
+                <!-- 3. Credenciales de Autorización de Administrador / Supervisor -->
+                <div class="card bg-white border p-3 rounded-3 mb-3 shadow-sm">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="badge bg-danger rounded-pill px-2 py-1" style="font-size: 10.5px;">Seguridad</span>
+                        <span class="fw-bold small text-dark">Autorización de Administrador / Supervisor</span>
+                    </div>
+
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold mb-1">Usuario Admin/Supervisor *</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   placeholder="Ej. admin"
+                                   @bind="adminUsername" @bind:event="oninput" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold mb-1">Contraseña *</label>
+                            <input type="password" class="form-control form-control-sm"
+                                   placeholder="••••••"
+                                   @bind="adminPassword" @bind:event="oninput"
+                                   @onkeydown="HandleKeyDown" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Opción de Impresión de Comprobante -->
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" role="switch" id="switchImprimirMerma" @bind="imprimirComprobante" style="cursor: pointer;">
+                    <label class="form-check-label small fw-semibold text-dark" for="switchImprimirMerma">
+                        Imprimir comprobante físico de merma/salida en ticketera térmica
+                    </label>
+                </div>
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mb-0 d-flex align-items-center gap-2">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        <span>@ErrorMessage</span>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(SuccessMessage))
+                {
+                    <div class="alert alert-success py-2 small mb-0 d-flex align-items-center gap-2">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span>@SuccessMessage</span>
+                    </div>
+                }
+            </div>
+
+            <!-- Footer -->
+            <div class="p-3 border-top bg-white d-flex justify-content-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="Cancelar" disabled="@isProcessing">
+                    Cancelar
+                </button>
+                <button type="button" class="btn text-white btn-sm px-4 fw-bold shadow-sm d-flex align-items-center gap-2"
+                        style="background-color: #991b1b; border-color: #991b1b;"
+                        @onclick="ProcesarMerma" disabled="@isProcessing">
+                    @if (isProcessing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                        <span>Registrando Salida...</span>
+                    }
+                    else
+                    {
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        <span>Confirmar Salida por Merma</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public List<CartItemDto> Carrito { get; set; } = new();
+    [Parameter] public EventCallback<(bool Success, string Message)> OnMermaCompleted { get; set; }
+
+    private string motivoSeleccionado = "Merma por plagas / roedores";
+    private string notaAdicional = "";
+    private string adminUsername = "";
+    private string adminPassword = "";
+    private bool imprimirComprobante = true;
+    private bool isProcessing = false;
+    private string? ErrorMessage;
+    private string? SuccessMessage;
+    private bool _wasOpen;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            _wasOpen = true;
+            if (AuthService.IsAdmin && AuthService.CurrentUser != null)
+            {
+                adminUsername = AuthService.CurrentUser.NombreUsuario;
+            }
+            else
+            {
+                adminUsername = "";
+            }
+            adminPassword = "";
+            notaAdicional = "";
+            ErrorMessage = null;
+            SuccessMessage = null;
+            isProcessing = false;
+
+            // Asegurar que cada ítem en el modal tenga su costo unitario exacto cargado
+            try
+            {
+                await using var context = await DbFactory.CreateDbContextAsync();
+                foreach (var item in Carrito)
+                {
+                    if (item.CostoUnitario <= 0)
+                    {
+                        var prod = await context.Productos.FindAsync(item.IdProducto);
+                        if (prod != null)
+                        {
+                            item.CostoUnitario = item.EsGranel ? prod.CostoEfectivoGranel : (prod.PrecioCompra > 0 ? prod.PrecioCompra : 0m);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+        else if (!IsOpen)
+        {
+            _wasOpen = false;
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await ProcesarMerma();
+        }
+        else if (e.Key == "Escape")
+        {
+            await Cancelar();
+        }
+    }
+
+    private async Task ProcesarMerma()
+    {
+        ErrorMessage = null;
+        SuccessMessage = null;
+
+        if (!Carrito.Any())
+        {
+            ErrorMessage = "El carrito no contiene productos.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(adminUsername) || string.IsNullOrWhiteSpace(adminPassword))
+        {
+            ErrorMessage = "Debe ingresar las credenciales del Administrador o Supervisor autorizador.";
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            // 1. Validar Credenciales de Supervisor/Admin
+            var authRes = await AuthService.VerifySupervisorOrAdminCredentialsAsync(adminUsername, adminPassword);
+            if (!authRes.Success || authRes.SupervisorUser == null)
+            {
+                ErrorMessage = authRes.Message;
+                isProcessing = false;
+                return;
+            }
+
+            var supervisor = authRes.SupervisorUser;
+            var cajero = AuthService.CurrentUser;
+            int idCajero = cajero?.IdUsuario ?? supervisor.IdUsuario;
+
+            // 2. Registrar la salida en lote por merma a costo
+            var res = await PosService.RegistrarMermaLoteAsync(
+                Carrito.ToList(),
+                motivoSeleccionado,
+                supervisor.IdUsuario,
+                idCajero,
+                notaAdicional
+            );
+
+            if (!res.Success)
+            {
+                ErrorMessage = res.Message;
+                isProcessing = false;
+                return;
+            }
+
+            // 3. Imprimir comprobante físico si está marcado
+            if (imprimirComprobante && res.Mermas.Any())
+            {
+                try
+                {
+                    var config = await SettingsService.GetConfiguracionAsync();
+                    await PrintService.PrintMermaDirectAsync(
+                        res.Mermas,
+                        res.TotalCostoMerma,
+                        motivoSeleccionado,
+                        cajero?.Nombre ?? "Cajero",
+                        supervisor.Nombre,
+                        config
+                    );
+                }
+                catch { }
+            }
+
+            SuccessMessage = res.Message;
+            StateHasChanged();
+            await Task.Delay(400);
+
+            await CerrarModal();
+            await OnMermaCompleted.InvokeAsync((true, res.Message));
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Error al procesar merma: {ex.Message}";
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task Cancelar()
+    {
+        await CerrarModal();
+    }
+
+    private async Task CerrarModal()
+    {
+        IsOpen = false;
+        _wasOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

@@ -1,0 +1,505 @@
+@implements IDisposable
+@inject IPurchaseService PurchaseService
+@inject IProductService ProductService
+@inject IAuthService AuthService
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop-custom" tabindex="0" @onkeydown="HandleModalKeyDown" @onclick="Close">
+        <div class="modal-content-custom large" @onclick:stopPropagation="true" style="max-width: 880px;">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <h6 class="mb-0 fw-bold">Registrar Compra de Mercadería</h6>
+                </div>
+                <button type="button" class="btn-close" @onclick="Close" title="Cerrar (Esc)"></button>
+            </div>
+
+            <div class="p-4">
+                <!-- Encabezado de la Compra -->
+                <div class="row g-2 mb-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Proveedor *</label>
+                        <div class="input-group input-group-sm">
+                            <select class="form-select form-select-sm" @bind="SelectedProveedorId">
+                                <option value="0">-- Seleccionar Proveedor --</option>
+                                @foreach (var p in Proveedores)
+                                {
+                                    <option value="@p.IdProveedor">@p.Nombre @(!string.IsNullOrEmpty(p.Nrc) ? $"({p.Nrc})" : "")</option>
+                                }
+                            </select>
+                            <button type="button" class="btn text-white" style="background-color: #15803D;" title="Registrar Nuevo Proveedor" @onclick="() => isQuickSupplierOpen = true">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold">Número de Factura / Comprobante *</label>
+                        <input type="text" class="form-control form-control-sm font-monospace" @bind="NumFactura" placeholder="Ej. FAC-2026-0045" />
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Observaciones (Opcional)</label>
+                        <input type="text" class="form-control form-control-sm" @bind="Observaciones" placeholder="Detalles de la compra, guía de remisión o entrega" />
+                    </div>
+                </div>
+
+                <!-- Selector para Agregar Productos (Optimizado para +1,500 artículos con [ESPACIO]) -->
+                <div class="card p-3 bg-light border-0 rounded-3 mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold small text-dark">Agregar Artículo a la Compra:</span>
+                        <span class="text-muted small" style="font-size: 11px;">
+                            Presione <kbd class="bg-dark text-white px-1 py-0 rounded">ESPACIO</kbd> para buscar en el catálogo
+                        </span>
+                    </div>
+
+                    <div class="row g-2 align-items-end">
+                        <!-- Celda interactiva de búsqueda de Producto -->
+                        <div class="col-12 col-md-5">
+                            <label class="form-label small text-muted mb-1 d-flex justify-content-between">
+                                <span>Producto *</span>
+                            </label>
+                            
+                            @if (ProductoSeleccionado == null)
+                            {
+                                <div class="input-group input-group-sm">
+                                    <input @ref="inputBusquedaRef"
+                                           type="text" 
+                                           class="form-control trigger-spacebar-search" 
+                                           placeholder="[ESPACIO] o clic para buscar..."
+                                           @bind="TextoEscaneado"
+                                           @bind:event="oninput"
+                                           @onkeydown="HandleBusquedaCellKeyDown"
+                                           @onclick="AbrirBuscador" />
+                                    <button class="btn btn-outline-success" type="button" @onclick="AbrirBuscador" title="Abrir Buscador [ESPACIO]">
+                                        Buscar
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="d-flex align-items-center justify-content-between p-1 px-2 border rounded bg-white" style="height: 31px;">
+                                    <div class="d-flex align-items-center gap-2 overflow-hidden text-truncate">
+                                        <span class="badge bg-success bg-opacity-10 text-success border border-success font-monospace" style="font-size: 10px;">
+                                            @ProductoSeleccionado.Codigo
+                                        </span>
+                                        <span class="small fw-semibold text-dark text-truncate" title="@ProductoSeleccionado.Nombre">
+                                            @ProductoSeleccionado.Nombre
+                                        </span>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 border-0" 
+                                            @onclick="AbrirBuscador" title="Cambiar producto [Espacio]" style="font-size: 11px;">
+                                        Cambiar
+                                    </button>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Cantidad con Enter para agregar -->
+                        <div class="col-6 col-md-2">
+                            <label class="form-label small text-muted mb-1">Cantidad @(ProductoSeleccionado != null && !string.IsNullOrEmpty(ProductoSeleccionado.UnidadMedida) ? $"({ProductoSeleccionado.UnidadMedida})" : ""):</label>
+                            <input @ref="inputCantidadRef"
+                                   type="number" step="any" min="0.001" class="form-control form-control-sm text-center fw-bold" 
+                                   @bind="ItemCantidad" 
+                                   @onkeydown="HandleCantidadKeyDown" />
+                        </div>
+
+                        <!-- Costo Unitario con Enter para agregar -->
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small text-muted mb-1">Costo Unitario ($):</label>
+                            <input type="number" step="0.01" min="0" class="form-control form-control-sm text-end" 
+                                   @bind="ItemPrecioCompra" 
+                                   @onkeydown="HandlePrecioKeyDown" />
+                        </div>
+
+                        <!-- Botón Agregar -->
+                        <div class="col-12 col-md-2">
+                            <button type="button" class="btn text-white btn-sm w-100 fw-semibold" 
+                                    style="background-color: #15803D; border-color: #15803D;"
+                                    @onclick="AgregarItem" disabled="@(ProductoSeleccionado == null)">
+                                + Agregar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabla de Artículos Agregados -->
+                <div class="table-responsive mb-3" style="max-height: 250px; overflow-y: auto;">
+                    <table class="table table-sm table-bordered align-middle small mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Código</th>
+                                <th>Producto</th>
+                                <th class="text-center" style="width: 80px;">Cant.</th>
+                                <th class="text-end" style="width: 110px;">Costo Unit.</th>
+                                <th class="text-end" style="width: 110px;">Subtotal</th>
+                                <th class="text-center" style="width: 40px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (!Items.Any())
+                            {
+                                <tr>
+                                    <td colspan="6" class="text-center py-4 text-muted">
+                                        <div class="mb-1 text-muted">
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                        </div>
+                                        <div>No has agregado ningún producto a esta compra.</div>
+                                        <div class="small text-muted mt-1">
+                                            Presiona <kbd class="bg-dark text-white px-1 py-0 rounded">ESPACIO</kbd> para buscar e insertar productos.
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var item in Items)
+                                {
+                                    <tr>
+                                        <td class="font-monospace text-muted">@item.Codigo</td>
+                                        <td class="fw-semibold text-dark">@item.Nombre</td>
+                                        <td class="text-center fw-bold">@item.Cantidad.ToString("G29")</td>
+                                        <td class="text-end text-muted">$@item.PrecioCompra.ToString("F2")</td>
+                                        <td class="text-end fw-bold text-dark">$@item.Subtotal.ToString("F2")</td>
+                                        <td class="text-center">
+                                            <button type="button" class="btn btn-sm text-danger p-0 border-0 bg-transparent" 
+                                                    title="Quitar de la lista" @onclick="() => Items.Remove(item)">
+                                                &times;
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                        <tfoot class="table-light">
+                            <tr>
+                                <td colspan="4" class="text-end fw-bold fs-6">TOTAL COMPRA:</td>
+                                <td class="text-end fw-bold fs-6" style="color: #15803D;">$@TotalCompra.ToString("F2")</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                @if (!string.IsNullOrEmpty(ErrorMessage))
+                {
+                    <div class="alert alert-danger py-2 small mb-0">
+                        @ErrorMessage
+                    </div>
+                }
+            </div>
+
+            <!-- Pie del Modal con atajo F1 para Finalizar Compra -->
+            <div class="p-3 border-top bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span class="small text-muted">
+                    Las existencias se sumarán automáticamente al inventario físico en SQL Server.
+                </span>
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="Close" disabled="@isSaving">
+                        Cancelar
+                    </button>
+                    <button type="button" class="btn text-white btn-sm px-3 fw-semibold" style="background-color: #15803D; border-color: #15803D;" @onclick="GuardarCompra" disabled="@isSaving">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                            <span>Guardando...</span>
+                        }
+                        else
+                        {
+                            <span>Confirmar e Ingresar Stock</span>
+                            <kbd class="bg-dark text-white px-1 py-0 rounded ms-2" style="font-size: 10px;">F2</kbd>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Componente Modal Buscador de Productos -->
+<ProductSearchModal @bind-IsOpen="isSearchModalOpen" PermitirSinStock="true" OnProductSelected="OnProductChosenFromModal" />
+
+<!-- Modal Rápido de Nuevo Proveedor -->
+<QuickSupplierModal @bind-IsOpen="isQuickSupplierOpen" OnCreated="OnProveedorCreado" />
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private List<Proveedor> Proveedores = new();
+    private List<PurchaseItemDto> Items = new();
+
+    private int SelectedProveedorId;
+    private string NumFactura = "";
+    private string? Observaciones;
+
+    private Producto? ProductoSeleccionado;
+    private string TextoEscaneado = "";
+    private decimal ItemCantidad = 1.000m;
+    private decimal ItemPrecioCompra = 0.00m;
+
+    private bool isSearchModalOpen = false;
+    private bool isQuickSupplierOpen = false;
+    private bool isSaving = false;
+    private string? ErrorMessage;
+    private bool wasOpen = false;
+
+    private ElementReference inputBusquedaRef;
+    private ElementReference inputCantidadRef;
+
+    private decimal TotalCompra => Items.Sum(i => i.Subtotal);
+
+    protected override void OnInitialized()
+    {
+        KeyboardBridgeService.OnF1Pressed += HandleBridgeF1;
+        KeyboardBridgeService.OnF2Pressed += HandleBridgeF2;
+        KeyboardBridgeService.OnSpacePressed += HandleBridgeSpace;
+        KeyboardBridgeService.OnBarcodeScanned += HandleBridgeBarcode;
+    }
+
+    public void Dispose()
+    {
+        KeyboardBridgeService.OnF1Pressed -= HandleBridgeF1;
+        KeyboardBridgeService.OnF2Pressed -= HandleBridgeF2;
+        KeyboardBridgeService.OnSpacePressed -= HandleBridgeSpace;
+        KeyboardBridgeService.OnBarcodeScanned -= HandleBridgeBarcode;
+    }
+
+    private async void HandleBridgeF1()
+    {
+        if (IsOpen && !isSearchModalOpen && !isSaving)
+        {
+            await InvokeAsync(GuardarCompra);
+        }
+    }
+
+    private async void HandleBridgeF2()
+    {
+        if (IsOpen && !isSearchModalOpen && !isSaving)
+        {
+            await InvokeAsync(GuardarCompra);
+        }
+    }
+
+    private void HandleBridgeSpace()
+    {
+        if (IsOpen && !isSearchModalOpen)
+        {
+            isSearchModalOpen = true;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async void HandleBridgeBarcode(string barcode)
+    {
+        if (IsOpen)
+        {
+            var prod = await ProductService.GetByCodigoAsync(barcode.Trim());
+            if (prod != null)
+            {
+                await InvokeAsync(() => OnProductChosenFromModal(prod));
+            }
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && !wasOpen)
+        {
+            wasOpen = true;
+            Proveedores = await PurchaseService.GetProveedoresAsync();
+            Items.Clear();
+            SelectedProveedorId = Proveedores.FirstOrDefault()?.IdProveedor ?? 0;
+            NumFactura = $"FAC-{DateTime.Now:yyyyMMdd}-{DateTime.Now:HHmm}";
+            Observaciones = null;
+            ProductoSeleccionado = null;
+            TextoEscaneado = "";
+            ItemCantidad = 1;
+            ItemPrecioCompra = 0.00m;
+            ErrorMessage = null;
+            isSaving = false;
+            isSearchModalOpen = false;
+        }
+        else if (!IsOpen)
+        {
+            wasOpen = false;
+        }
+    }
+
+    private void AbrirBuscador()
+    {
+        isSearchModalOpen = true;
+    }
+
+    private async Task OnProveedorCreado(Proveedor nuevo)
+    {
+        Proveedores = await PurchaseService.GetProveedoresAsync();
+        SelectedProveedorId = nuevo.IdProveedor;
+        StateHasChanged();
+    }
+
+    private async Task HandleBusquedaCellKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == " " || e.Key == "Spacebar")
+        {
+            AbrirBuscador();
+        }
+        else if (e.Key == "Enter")
+        {
+            if (!string.IsNullOrWhiteSpace(TextoEscaneado))
+            {
+                var prod = await ProductService.GetByCodigoAsync(TextoEscaneado.Trim());
+                if (prod != null)
+                {
+                    await OnProductChosenFromModal(prod);
+                    return;
+                }
+            }
+            AbrirBuscador();
+        }
+    }
+
+    private async Task OnProductChosenFromModal(Producto prod)
+    {
+        ProductoSeleccionado = prod;
+        ItemPrecioCompra = prod.PrecioCompra;
+        ItemCantidad = 1;
+        TextoEscaneado = "";
+        isSearchModalOpen = false;
+        StateHasChanged();
+
+        // Trasladar el foco a Cantidad para digitación inmediata
+        try
+        {
+            await Task.Delay(50);
+            await inputCantidadRef.FocusAsync();
+        }
+        catch { }
+    }
+
+    private async Task HandleCantidadKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AgregarItem();
+        }
+    }
+
+    private async Task HandlePrecioKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AgregarItem();
+        }
+    }
+
+    private async Task HandleModalKeyDown(KeyboardEventArgs e)
+    {
+        if ((e.Key == "F2" || e.Key == "F1") && !isSearchModalOpen)
+        {
+            await GuardarCompra();
+        }
+        else if (e.Key == "Escape" && !isSearchModalOpen)
+        {
+            await Close();
+        }
+    }
+
+    private async Task AgregarItem()
+    {
+        if (ProductoSeleccionado == null)
+        {
+            ErrorMessage = "Seleccione un producto presionando [ESPACIO] o digitando su código.";
+            return;
+        }
+        if (ItemCantidad <= 0)
+        {
+            ErrorMessage = "La cantidad debe ser mayor a cero.";
+            return;
+        }
+
+        var existing = Items.FirstOrDefault(i => i.IdProducto == ProductoSeleccionado.IdProducto);
+        if (existing != null)
+        {
+            existing.Cantidad += ItemCantidad;
+            existing.PrecioCompra = ItemPrecioCompra;
+        }
+        else
+        {
+            Items.Add(new PurchaseItemDto
+            {
+                IdProducto = ProductoSeleccionado.IdProducto,
+                Codigo = ProductoSeleccionado.Codigo,
+                Nombre = ProductoSeleccionado.Nombre,
+                Cantidad = ItemCantidad,
+                PrecioCompra = ItemPrecioCompra
+            });
+        }
+
+        ErrorMessage = null;
+        ProductoSeleccionado = null;
+        ItemCantidad = 1.000m;
+        ItemPrecioCompra = 0.00m;
+        TextoEscaneado = "";
+        StateHasChanged();
+
+        try
+        {
+            await Task.Delay(50);
+            await inputBusquedaRef.FocusAsync();
+        }
+        catch { }
+    }
+
+    private async Task GuardarCompra()
+    {
+        if (SelectedProveedorId <= 0)
+        {
+            ErrorMessage = "Debe seleccionar un proveedor.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(NumFactura))
+        {
+            ErrorMessage = "El número de factura es obligatorio.";
+            return;
+        }
+        if (!Items.Any())
+        {
+            ErrorMessage = "Debe agregar al menos un producto a la compra.";
+            return;
+        }
+
+        isSaving = true;
+        ErrorMessage = null;
+
+        int idUsuario = AuthService.CurrentUser?.IdUsuario ?? 1;
+
+        var result = await PurchaseService.RegistrarCompraAsync(
+            SelectedProveedorId,
+            idUsuario,
+            NumFactura,
+            Observaciones,
+            Items);
+
+        isSaving = false;
+
+        if (result.Success)
+        {
+            await Close();
+            await OnSaved.InvokeAsync();
+        }
+        else
+        {
+            ErrorMessage = result.Message;
+        }
+    }
+
+    private async Task Close()
+    {
+        wasOpen = false;
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}
