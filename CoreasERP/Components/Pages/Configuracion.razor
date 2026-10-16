@@ -103,15 +103,15 @@
         </div>
     </div>
 
-    <!-- 2. Parámetros de Conexión SQL Server -->
+    <!-- 2. Parámetros de Conexión MySQL / MariaDB -->
     <div class="col-12 col-lg-5">
         <div class="card border-0 shadow-sm rounded-3 h-100">
             <div class="card-header bg-white py-3 border-bottom d-flex align-items-center gap-2">
-                <h6 class="mb-0 fw-bold">Servidor SQL Server</h6>
+                <h6 class="mb-0 fw-bold">Servidor MySQL / MariaDB</h6>
             </div>
             <div class="card-body p-4">
                 <p class="small text-muted mb-3">
-                    Configuración de conexión local o red LAN a tu motor Microsoft SQL Server sin necesidad de internet.
+                    Configuración de conexión local (XAMPP, Laragon, MySQL Server) o en red LAN a tu motor MySQL / MariaDB.
                 </p>
 
                 <div class="mb-3">
@@ -123,13 +123,13 @@
                     <label class="form-label small text-muted">Instancias Comunes:</label>
                     <div class="d-flex flex-wrap gap-2">
                         <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetSqlExpress">
-                            SQLEXPRESS
+                            Laragon / XAMPP (3306)
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalDb">
-                            LocalDB
+                            MySQL Root (con clave)
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalhost">
-                            Localhost
+                            Servidor Red LAN
                         </button>
                     </div>
                 </div>
@@ -528,17 +528,17 @@
 
     private void SetSqlExpress()
     {
-        ConnectionString = @"Server=.\SQLEXPRESS;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+        ConnectionString = @"Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
     private void SetLocalDb()
     {
-        ConnectionString = @"Server=(localdb)\MSSQLLocalDB;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+        ConnectionString = @"Server=localhost;Port=3306;Database=Coreas_ERP;User=root;Password=root;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
     private void SetLocalhost()
     {
-        ConnectionString = @"Server=localhost;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+        ConnectionString = @"Server=192.168.1.100;Port=3306;Database=Coreas_ERP;User=coreas_admin;Password=TuClaveSegura123;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
     private async Task ProbarConexion()

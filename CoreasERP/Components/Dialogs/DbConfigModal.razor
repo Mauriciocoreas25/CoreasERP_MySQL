@@ -7,14 +7,14 @@
         <div class="modal-content-custom" @onclick:stopPropagation="true">
             <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
                 <div class="d-flex align-items-center gap-2">
-                    <h6 class="mb-0 fw-bold">Configuración de Conexión SQL Server</h6>
+                    <h6 class="mb-0 fw-bold">Configuración de Conexión MySQL / MariaDB</h6>
                 </div>
                 <button type="button" class="btn-close" @onclick="Close"></button>
             </div>
 
             <div class="p-4">
                 <p class="small text-muted mb-3">
-                    Configura los parámetros para conectarte a tu instancia de SQL Server local o en red sin necesidad de internet.
+                    Configura los parámetros para conectarte a tu servidor MySQL o MariaDB (Laragon, XAMPP, WAMP o servidor en red).
                 </p>
 
                 <div class="mb-3">
@@ -23,16 +23,16 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label small text-muted">Atajos Rápidos:</label>
+                    <label class="form-label small text-muted">Atajos Rápidos MySQL:</label>
                     <div class="d-flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetSqlExpress">
-                            SQLEXPRESS (.\SQLEXPRESS)
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLaragonXampp">
+                            Laragon / XAMPP (root sin clave)
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalDb">
-                            LocalDB (MSSQLLocalDB)
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetMySqlRoot">
+                            MySQL Server (root / admin)
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalhost">
-                            Localhost (127.0.0.1)
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetRedLocal">
+                            Servidor en Red LAN (192.168.1.x)
                         </button>
                     </div>
                 </div>
@@ -86,19 +86,19 @@
         }
     }
 
-    private void SetSqlExpress()
+    private void SetLaragonXampp()
     {
-        ConnectionString = @"Server=.\SQLEXPRESS;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+        ConnectionString = "Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
-    private void SetLocalDb()
+    private void SetMySqlRoot()
     {
-        ConnectionString = @"Server=(localdb)\MSSQLLocalDB;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+        ConnectionString = "Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=root;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
-    private void SetLocalhost()
+    private void SetRedLocal()
     {
-        ConnectionString = @"Server=localhost;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+        ConnectionString = "Server=192.168.1.100;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
     private async Task TestConnection()

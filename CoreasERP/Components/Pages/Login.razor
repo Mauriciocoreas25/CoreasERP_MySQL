@@ -9,7 +9,7 @@
             class="btn btn-outline-secondary btn-sm position-absolute top-0 end-0 m-3 d-flex align-items-center gap-1 shadow-sm"
             @onclick="() => isConfigOpen = true">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        <span class="d-none d-sm-inline">Servidor SQL</span>
+        <span class="d-none d-sm-inline">Servidor MySQL</span>
     </button>
 
     <div class="card border-0 shadow-lg p-4 p-sm-5" style="max-width: 440px; width: 90%; border-radius: 16px;">
@@ -19,14 +19,14 @@
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
             </div>
             <h3 class="fw-bold mb-1">Coreas ERP</h3>
-            <p class="text-muted small">Sistema de Almacén, Inventario & POS</p>
+            <p class="text-muted small">Sistema de Almacén, Inventario & POS (MySQL)</p>
         </div>
 
         @if (isInitializingDb)
         {
             <div class="alert alert-info py-2 small d-flex align-items-center gap-2 mb-3">
                 <span class="spinner-border spinner-border-sm"></span>
-                <span>Verificando base de datos en SQL Server...</span>
+                <span>Verificando base de datos en MySQL / MariaDB...</span>
             </div>
         }
 
@@ -103,7 +103,7 @@
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Aviso de conexión: {ex.Message}. Verifica tu SQL Server en el botón Servidor SQL.";
+            ErrorMessage = $"Aviso de conexión: {ex.Message}. Verifica tu servidor MySQL en el botón Servidor MySQL.";
         }
         finally
         {

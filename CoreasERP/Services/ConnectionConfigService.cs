@@ -1,4 +1,4 @@
-using Microsoft.Data.SqlClient;
+using MySqlConnector;
 
 namespace CoreasERP.Services;
 
@@ -11,20 +11,18 @@ public interface IConnectionConfigService
 
 public class ConnectionConfigService : IConnectionConfigService
 {
-    private const string PrefKey = "SQL_CONNECTION_STRING";
-    private const string DefaultConnection = @"Server=.\SQLEXPRESS;Database=Coreas_ERP;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;";
+    private const string PrefKey = "MYSQL_CONNECTION_STRING";
+    private const string DefaultConnection = "Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;";
 
     public string GetConnectionString()
     {
         var conn = Preferences.Default.Get(PrefKey, DefaultConnection);
-        if (conn.Contains("Database=CoreasERP;", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(conn) ||
+            conn.Contains("SQLEXPRESS", StringComparison.OrdinalIgnoreCase) ||
+            conn.Contains("Trusted_Connection", StringComparison.OrdinalIgnoreCase) ||
+            conn.Contains("MSSQLLocalDB", StringComparison.OrdinalIgnoreCase))
         {
-            conn = conn.Replace("Database=CoreasERP;", "Database=Coreas_ERP;", StringComparison.OrdinalIgnoreCase);
-            Preferences.Default.Set(PrefKey, conn);
-        }
-        else if (conn.Contains("Initial Catalog=CoreasERP;", StringComparison.OrdinalIgnoreCase))
-        {
-            conn = conn.Replace("Initial Catalog=CoreasERP;", "Initial Catalog=Coreas_ERP;", StringComparison.OrdinalIgnoreCase);
+            conn = DefaultConnection;
             Preferences.Default.Set(PrefKey, conn);
         }
         return conn;
@@ -33,14 +31,6 @@ public class ConnectionConfigService : IConnectionConfigService
     public void SetConnectionString(string connectionString)
     {
         var conn = connectionString.Trim();
-        if (conn.Contains("Database=CoreasERP;", StringComparison.OrdinalIgnoreCase))
-        {
-            conn = conn.Replace("Database=CoreasERP;", "Database=Coreas_ERP;", StringComparison.OrdinalIgnoreCase);
-        }
-        else if (conn.Contains("Initial Catalog=CoreasERP;", StringComparison.OrdinalIgnoreCase))
-        {
-            conn = conn.Replace("Initial Catalog=CoreasERP;", "Initial Catalog=Coreas_ERP;", StringComparison.OrdinalIgnoreCase);
-        }
         Preferences.Default.Set(PrefKey, conn);
     }
 
@@ -48,18 +38,30 @@ public class ConnectionConfigService : IConnectionConfigService
     {
         try
         {
-            var builder = new SqlConnectionStringBuilder(connectionString)
+            var builder = new MySqlConnectionStringBuilder(connectionString)
             {
-                ConnectTimeout = 5
+                ConnectionTimeout = 5
             };
 
-            await using var connection = new SqlConnection(builder.ConnectionString);
+            // Primero probar conexión al servidor MySQL (sin exigir que la BD ya exista, o creándola si no existe)
+            var dbName = builder.Database;
+            builder.Database = "";
+
+            await using var connection = new MySqlConnection(builder.ConnectionString);
             await connection.OpenAsync();
-            return (true, "¡Conexión exitosa a SQL Server!");
+
+            if (!string.IsNullOrWhiteSpace(dbName))
+            {
+                await using var cmd = connection.CreateCommand();
+                cmd.CommandText = $"CREATE DATABASE IF NOT EXISTS `{dbName.Replace("`", "")}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            return (true, "¡Conexión exitosa a MySQL / MariaDB!");
         }
         catch (Exception ex)
         {
-            return (false, $"Error al conectar: {ex.Message}");
+            return (false, $"Error al conectar a MySQL: {ex.Message}");
         }
     }
 }

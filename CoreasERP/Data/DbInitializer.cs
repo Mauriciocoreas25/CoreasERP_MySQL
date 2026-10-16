@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 using CoreasERP.Models;
 
 namespace CoreasERP.Data;
@@ -7,34 +8,44 @@ public static class DbInitializer
 {
     public static async Task InitializeAsync(AppDbContext context)
     {
-        // 1. Verificar si la base de datos ya existe y es accesible
-        bool dbExists = false;
+        // 0. Asegurar que el esquema/base de datos exista en el servidor MySQL antes de conectar con EF Core
         try
         {
-            dbExists = await context.Database.CanConnectAsync();
+            var connString = context.Database.GetConnectionString();
+            if (!string.IsNullOrWhiteSpace(connString))
+            {
+                var builder = new MySqlConnectionStringBuilder(connString);
+                var dbName = builder.Database;
+                if (!string.IsNullOrWhiteSpace(dbName))
+                {
+                    builder.Database = "";
+                    await using var serverConn = new MySqlConnection(builder.ConnectionString);
+                    await serverConn.OpenAsync();
+                    await using var cmd = serverConn.CreateCommand();
+                    cmd.CommandText = $"CREATE DATABASE IF NOT EXISTS `{dbName.Replace("`", "")}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+                    await cmd.ExecuteNonQueryAsync();
+                }
+            }
         }
         catch
         {
-            dbExists = false;
+            // Continuar para que EnsureCreatedAsync o CanConnectAsync reporte cualquier detalle si el servidor no responde
         }
 
-        // 2. Si no existe, crear automáticamente la base de datos y todas sus tablas
-        if (!dbExists)
+        // 1. Crear automáticamente las tablas si no existen
+        try
         {
-            try
-            {
-                await context.Database.EnsureCreatedAsync();
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"No se pudo crear automáticamente la base de datos en SQL Server ({ex.Message}). Para solucionarlo: ejecuta la aplicación como Administrador (clic derecho -> Ejecutar como Administrador) o crea la base con el script Coreas_ERP_Database.sql en SSMS.", ex);
-            }
+            await context.Database.EnsureCreatedAsync();
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"No se pudo conectar o inicializar la base de datos en MySQL ({ex.Message}). Verifica que tu servidor MySQL / MariaDB (Laragon, XAMPP o MySQL Server) esté encendido en el puerto configurado.", ex);
         }
 
-        // 3. Garantizar que las columnas y tablas nuevas existan (Migración automática segura)
+        // 2. Garantizar que las columnas y tablas nuevas existan (Migración automática segura para MySQL)
         await EnsureSchemaUpToDateAsync(context);
 
-        // 1. Roles
+        // 3. Roles
         if (!await context.Roles.AnyAsync())
         {
             var roles = new List<Rol>
@@ -47,7 +58,7 @@ public static class DbInitializer
             await context.SaveChangesAsync();
         }
 
-        // 2. Usuarios iniciales (Solo usuario admin)
+        // 4. Usuarios iniciales (Solo usuario admin)
         if (!await context.Usuarios.AnyAsync())
         {
             var adminRol = await context.Roles.FirstAsync(r => r.Nombre == "Administrador");
@@ -66,7 +77,7 @@ public static class DbInitializer
             await context.SaveChangesAsync();
         }
 
-        // 3. Clientes (Consumidor Final obligatorio con IdCliente = 1 para ventas rápidas)
+        // 5. Clientes (Consumidor Final obligatorio con IdCliente = 1 para ventas rápidas)
         if (!await context.Clientes.AnyAsync())
         {
             var consumidorFinal = new Cliente
@@ -83,7 +94,7 @@ public static class DbInitializer
             await context.SaveChangesAsync();
         }
 
-        // 4. Categoría inicial base
+        // 6. Categoría inicial base
         if (!await context.Categorias.AnyAsync())
         {
             var catGeneral = new Categoria
@@ -97,7 +108,7 @@ public static class DbInitializer
             await context.SaveChangesAsync();
         }
 
-        // 6. Configuración Inicial del Negocio
+        // 7. Configuración Inicial del Negocio
         if (!await context.ConfiguracionNegocio.AnyAsync())
         {
             var config = new ConfiguracionNegocio
@@ -130,45 +141,42 @@ public static class DbInitializer
         var migrations = new[]
         {
             // Productos
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Productos]') AND name = 'EsGranel') ALTER TABLE [dbo].[Productos] ADD [EsGranel] [bit] NOT NULL DEFAULT(0);",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Productos]') AND name = 'PrecioGranel') ALTER TABLE [dbo].[Productos] ADD [PrecioGranel] [decimal](10, 2) NULL;",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Productos]') AND name = 'CostoGranel') ALTER TABLE [dbo].[Productos] ADD [CostoGranel] [decimal](10, 4) NULL;",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Productos]') AND name = 'CantidadPorEmpaque') ALTER TABLE [dbo].[Productos] ADD [CantidadPorEmpaque] [decimal](10, 2) NULL DEFAULT(1.00);",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Productos]') AND name = 'UnidadMedida') ALTER TABLE [dbo].[Productos] ADD [UnidadMedida] [varchar](30) NOT NULL DEFAULT('Unidad');",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Productos]') AND name = 'MargenExcepcion') ALTER TABLE [dbo].[Productos] ADD [MargenExcepcion] [decimal](5, 2) NOT NULL DEFAULT(0.00);",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Productos]') AND name = 'ImagenUrl') ALTER TABLE [dbo].[Productos] ADD [ImagenUrl] [varchar](500) NULL;",
+            "ALTER TABLE `Productos` ADD COLUMN `EsGranel` TINYINT(1) NOT NULL DEFAULT 0;",
+            "ALTER TABLE `Productos` ADD COLUMN `PrecioGranel` DECIMAL(10, 2) NULL;",
+            "ALTER TABLE `Productos` ADD COLUMN `CostoGranel` DECIMAL(10, 4) NULL;",
+            "ALTER TABLE `Productos` ADD COLUMN `CantidadPorEmpaque` DECIMAL(10, 2) NULL DEFAULT 1.00;",
+            "ALTER TABLE `Productos` ADD COLUMN `UnidadMedida` VARCHAR(30) NOT NULL DEFAULT 'Unidad';",
+            "ALTER TABLE `Productos` ADD COLUMN `MargenExcepcion` DECIMAL(5, 2) NOT NULL DEFAULT 0.00;",
+            "ALTER TABLE `Productos` ADD COLUMN `ImagenUrl` VARCHAR(500) NULL;",
 
             // Categorias
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[Categorias]') AND name = 'Icono') ALTER TABLE [dbo].[Categorias] ADD [Icono] [varchar](50) NOT NULL DEFAULT('box-seam');",
+            "ALTER TABLE `Categorias` ADD COLUMN `Icono` VARCHAR(50) NOT NULL DEFAULT 'box-seam';",
 
             // ConfiguracionNegocio
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ConfiguracionNegocio]') AND name = 'NombreImpresora') ALTER TABLE [dbo].[ConfiguracionNegocio] ADD [NombreImpresora] [varchar](150) NULL;",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ConfiguracionNegocio]') AND name = 'NombreImpresoraDocumentos') ALTER TABLE [dbo].[ConfiguracionNegocio] ADD [NombreImpresoraDocumentos] [varchar](150) NULL;",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ConfiguracionNegocio]') AND name = 'AnchoPapelMm') ALTER TABLE [dbo].[ConfiguracionNegocio] ADD [AnchoPapelMm] [int] NOT NULL DEFAULT(80);",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ConfiguracionNegocio]') AND name = 'ImpresionDirecta') ALTER TABLE [dbo].[ConfiguracionNegocio] ADD [ImpresionDirecta] [bit] NOT NULL DEFAULT(1);",
-            "IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'[dbo].[ConfiguracionNegocio]') AND name = 'CortarPapel') ALTER TABLE [dbo].[ConfiguracionNegocio] ADD [CortarPapel] [bit] NOT NULL DEFAULT(1);",
+            "ALTER TABLE `ConfiguracionNegocio` ADD COLUMN `NombreImpresora` VARCHAR(150) NULL;",
+            "ALTER TABLE `ConfiguracionNegocio` ADD COLUMN `NombreImpresoraDocumentos` VARCHAR(150) NULL;",
+            "ALTER TABLE `ConfiguracionNegocio` ADD COLUMN `AnchoPapelMm` INT NOT NULL DEFAULT 80;",
+            "ALTER TABLE `ConfiguracionNegocio` ADD COLUMN `ImpresionDirecta` TINYINT(1) NOT NULL DEFAULT 1;",
+            "ALTER TABLE `ConfiguracionNegocio` ADD COLUMN `CortarPapel` TINYINT(1) NOT NULL DEFAULT 1;",
 
             // Tabla dedicada de Mermas (para pérdidas por plagas, roturas, vencimiento, consumo interno)
-            @"IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Mermas')
-            BEGIN
-                CREATE TABLE [dbo].[Mermas] (
-                    [IdMerma] INT IDENTITY(1,1) NOT NULL,
-                    [IdProducto] INT NOT NULL,
-                    [IdUsuarioSupervisor] INT NOT NULL,
-                    [IdUsuarioCajero] INT NULL,
-                    [Cantidad] DECIMAL(12, 3) NOT NULL,
-                    [CantidadBaseStock] DECIMAL(12, 3) NOT NULL,
-                    [CostoUnitario] DECIMAL(10, 4) NOT NULL,
-                    [CostoTotal] DECIMAL(12, 2) NOT NULL,
-                    [Motivo] VARCHAR(100) NOT NULL,
-                    [Observaciones] VARCHAR(500) NULL,
-                    [FechaHora] DATETIME2 NOT NULL DEFAULT(CURRENT_TIMESTAMP),
-                    CONSTRAINT [PK_Mermas] PRIMARY KEY CLUSTERED ([IdMerma] ASC),
-                    CONSTRAINT [FK_Mermas_Productos_IdProducto] FOREIGN KEY ([IdProducto]) REFERENCES [dbo].[Productos] ([IdProducto]),
-                    CONSTRAINT [FK_Mermas_Usuarios_IdUsuarioSupervisor] FOREIGN KEY ([IdUsuarioSupervisor]) REFERENCES [dbo].[Usuarios] ([IdUsuario]),
-                    CONSTRAINT [FK_Mermas_Usuarios_IdUsuarioCajero] FOREIGN KEY ([IdUsuarioCajero]) REFERENCES [dbo].[Usuarios] ([IdUsuario])
-                );
-            END"
+            @"CREATE TABLE IF NOT EXISTS `Mermas` (
+                `IdMerma` INT AUTO_INCREMENT NOT NULL,
+                `IdProducto` INT NOT NULL,
+                `IdUsuarioSupervisor` INT NOT NULL,
+                `IdUsuarioCajero` INT NULL,
+                `Cantidad` DECIMAL(12, 3) NOT NULL,
+                `CantidadBaseStock` DECIMAL(12, 3) NOT NULL,
+                `CostoUnitario` DECIMAL(10, 4) NOT NULL,
+                `CostoTotal` DECIMAL(12, 2) NOT NULL,
+                `Motivo` VARCHAR(100) NOT NULL,
+                `Observaciones` VARCHAR(500) NULL,
+                `FechaHora` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                PRIMARY KEY (`IdMerma`),
+                CONSTRAINT `FK_Mermas_Productos_IdProducto` FOREIGN KEY (`IdProducto`) REFERENCES `Productos` (`IdProducto`),
+                CONSTRAINT `FK_Mermas_Usuarios_IdUsuarioSupervisor` FOREIGN KEY (`IdUsuarioSupervisor`) REFERENCES `Usuarios` (`IdUsuario`),
+                CONSTRAINT `FK_Mermas_Usuarios_IdUsuarioCajero` FOREIGN KEY (`IdUsuarioCajero`) REFERENCES `Usuarios` (`IdUsuario`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
         };
 
         foreach (var sql in migrations)
@@ -179,7 +187,7 @@ public static class DbInitializer
             }
             catch
             {
-                // Si un cambio ya fue aplicado o falla, continuar con los siguientes para no bloquear el inicio
+                // Si la columna o tabla ya existe en MySQL, continuar con la siguiente
             }
         }
     }

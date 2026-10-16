@@ -24,14 +24,15 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
-        // Servicios de persistencia y configuración SQL Server
+        // Servicios de persistencia y configuración MySQL / MariaDB
         builder.Services.AddSingleton<IConnectionConfigService, ConnectionConfigService>();
 
         builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
         {
             var configService = sp.GetRequiredService<IConnectionConfigService>();
             var connectionString = configService.GetConnectionString();
-            options.UseSqlServer(connectionString);
+            var serverVersion = new MySqlServerVersion(new Version(8, 0, 36));
+            options.UseMySql(connectionString, serverVersion);
         });
 
         // Servicios de Dominio / Negocio

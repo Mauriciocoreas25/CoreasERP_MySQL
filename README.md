@@ -1,36 +1,25 @@
-# Coreas ERP — Sistema de Inventario, POS, Facturación Electrónica (DTE) y Control de Caja
+# CoreasERP — Sistema de Almacén, Inventario, POS y Facturación Electrónica DTE (Edición MySQL / MariaDB)
 
-Repositorio oficial del código fuente, scripts de base de datos y documentación maestra de lógica de negocio de **Coreas ERP**, diseñado para su mantenimiento y replicación en otras plataformas (Web, Móvil, Desktop).
+Sistema integral de planificación de recursos empresariales (ERP) y Punto de Venta (POS) con soporte para Facturación Electrónica (DTE - Ministerio de Hacienda de El Salvador), Control de Inventario con Recetas/BOM, Cuentas por Cobrar, Compras con Costo Promedio Ponderado, Mermas, Exportación/Importación Excel Blindada y E-Commerce sincronizado.
 
----
+## 📄 Documentación Completa de Lógica de Negocio
+Consulta la especificación técnica completa (19 tablas, fórmulas financieras, reglas de negocio y flujos de trabajo paso a paso) en:
+👉 **[DOCUMENTO_LOGICA_DE_NEGOCIO_COREAS_ERP.md](./DOCUMENTO_LOGICA_DE_NEGOCIO_COREAS_ERP.md)**
 
-## 📚 Documentación de Lógica de Negocio y Replicación
+## 🛠️ Stack Tecnológico
+- **Framework:** .NET 9 MAUI Blazor Hybrid (`net9.0-windows10.0.19041.0` / multiplataforma)
+- **ORM:** Entity Framework Core 9 + `Pomelo.EntityFrameworkCore.MySql` (`9.0.0`) + `MySqlConnector` (`2.4.0`)
+- **Base de Datos:** MySQL 8.0+ / MariaDB 10.6+ (InnoDB, `utf8mb4_unicode_ci`) — compatible con Laragon, XAMPP, WAMP o MySQL Server en red LAN.
+- **Reportes:** ClosedXML (Excel `.xlsx` nativo con blindaje de importación/exportación) y QuestPDF (PDF / Tickets térmicos 80mm/58mm y Carta)
 
-Para replicar el sistema en otra tecnología o plataforma, consulta los siguientes documentos incluidos en la raíz de este repositorio:
-
-1. 📄 **[DOCUMENTO_LOGICA_DE_NEGOCIO_COREAS_ERP.md](./DOCUMENTO_LOGICA_DE_NEGOCIO_COREAS_ERP.md)**
-   - **Especificación Maestra Agnóstica:** Contiene las 19 entidades del modelo de datos, todas las fórmulas matemáticas (inventario fraccionado/granel, márgenes, desglose de IVA 13%, anticipos, cotizaciones, mermas valuadas al costo, arqueo ciego y libros de IVA), diagramas de flujo y matriz de permisos por rol.
-2. 📄 **[GUIA_MAESTRA_SISTEMA_Y_REPLICACION_ALMACEN_IN.md](./GUIA_MAESTRA_SISTEMA_Y_REPLICACION_ALMACEN_IN.md)**
-   - Catálogo detallado de las 13 pantallas, los 20 modales del sistema y ejemplos de implementación en arquitectura N-Capas (PHP / MySQL / JS).
-3. 📄 **[DOCUMENTACION_SISTEMA_COMPLETO.md](./DOCUMENTACION_SISTEMA_COMPLETO.md)**
-   - Especificación de contratos REST API (JSON de entrada/salida) e integración con módulo Ecommerce.
-4. 📄 **[MANUAL_INTEGRACION_POS.md](./MANUAL_INTEGRACION_POS.md)** & **[CAMPOS_DTE_REFERENCIA_POS.md](./CAMPOS_DTE_REFERENCIA_POS.md)**
-   - Manual técnico de Facturación Electrónica (DTE El Salvador - Ministerio de Hacienda / API FelSv) para los 8 tipos de documentos tributarios, manejo de contingencia offline e invalidaciones.
-5. 🗄️ **[Coreas_ERP_Database.sql](./Coreas_ERP_Database.sql)**
-   - Script DDL completo de creación de base de datos, tablas, llaves foráneas, valores por defecto y datos semilla (`Roles`, `Usuario Admin`, `Consumidor Final`).
-
----
-
-## 🏗️ Estructura del Proyecto (`CoreasERP/`)
-
-- **`CoreasERP/Models/`**: Entidades de dominio (`Producto`, `Venta`, `DetalleVenta`, `Compra`, `CorteCaja`, `MovimientoCaja`, `CuentaCobrar`, `Abono`, `Merma`, `AjusteInventario`, `CambioPrecio`, `Promocion`, etc.).
-- **`CoreasERP/Data/AppDbContext.cs`**: Configuración relacional con Entity Framework Core.
-- **`CoreasERP/Services/`**: Capa de lógica de negocio transaccional:
-  - `PosService.cs`: Registro de ventas, descuento proporcional de stock (empaque vs. granel), anticipos, cotizaciones, anulaciones y registro de mermas en lote.
-  - `ProductService.cs`: Gestión de catálogo, recetas/materiales (BOM), generación de códigos EAN-13 y ajustes de inventario supervisados con BCrypt.
-  - `PurchaseService.cs` & `PriceChangeService.cs`: Ingreso de compras a proveedores, incremento de stock y detección automática de cambios de costo con sugerencia de nuevos precios de venta.
-  - `CashRegisterService.cs`: Apertura de turno, movimientos manuales, Corte X, Arqueo Ciego por denominaciones y Corte Z.
-  - `CreditService.cs`: Gestión de cuentas por cobrar y amortización de abonos.
-  - `DashboardService.cs`: KPIs financieros, utilidad bruta, pérdidas por mermas y Libro de IVA (Débito vs. Crédito Fiscal).
-  - `Dte/`: Construcción de JSON y comunicación con API de Facturación Electrónica (`FelSvApiService`, `DteJsonBuilderService`).
-- **`CoreasERP/Components/`**: Interfaces de usuario y modales interactivos en Blazor Hybrid.
+## 🗄️ Configuración de Base de Datos MySQL
+1. El sistema **crea automáticamente** la base de datos `Coreas_ERP`, todas sus tablas y datos semilla al iniciar sesión por primera vez si tu servidor MySQL/MariaDB está activo.
+2. También puedes ejecutar manualmente el script completo incluido en la raíz:
+   - **[Coreas_ERP_MySQL.sql](./Coreas_ERP_MySQL.sql)**
+3. Cadena de conexión por defecto (configurable desde el botón **Servidor MySQL** en la pantalla de Login):
+   ```text
+   Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;
+   ```
+4. **Credenciales iniciales por defecto:**
+   - **Usuario:** `admin`
+   - **Contraseña:** `admin123`
