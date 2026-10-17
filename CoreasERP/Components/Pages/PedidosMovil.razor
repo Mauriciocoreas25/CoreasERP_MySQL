@@ -1,0 +1,621 @@
+@page "/pedidos-movil"
+@inject IPromotionService PromotionService
+@inject IPrintService PrintService
+@inject ISettingsService SettingsService
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-1">Pedidos de App Móvil (Retiro en Tienda y Domicilio)</h4>
+        <p class="text-muted small mb-0">Gestiona la preparación de productos (Picking), despacho a domicilio y entregas en tienda de los pedidos recibidos desde la App Móvil</p>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-outline-secondary btn-sm px-3 fw-semibold" @onclick="CargarPedidos" disabled="@isLoading">
+            @(isLoading ? "Actualizando..." : "Actualizar Pedidos")
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(FeedbackMessage))
+{
+    <div class="alert @(FeedbackSuccess ? "alert-success border-success" : "alert-danger border-danger") alert-dismissible fade show py-2 small mb-3">
+        <strong>@(FeedbackSuccess ? "Operación Exitosa: " : "Atención: ")</strong> @FeedbackMessage
+        <button type="button" class="btn-close py-2" @onclick="() => FeedbackMessage = null"></button>
+    </div>
+}
+
+<!-- Tarjetas de Resumen Rápido -->
+<div class="row g-3 mb-4">
+    <div class="col-12 col-sm-6 col-md-3">
+        <div class="card border-0 shadow-sm rounded-3 border-start border-4 border-warning">
+            <div class="card-body py-3 px-3">
+                <div class="text-muted small fw-semibold">Pendientes de Sacar</div>
+                <div class="fs-4 fw-bold text-dark mt-1">@Pedidos.Count(p => p.Estado == "Pendiente" || p.Estado == "En Preparación")</div>
+                <div class="small text-muted">Por preparar en tienda</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-md-3">
+        <div class="card border-0 shadow-sm rounded-3 border-start border-4 border-primary">
+            <div class="card-body py-3 px-3">
+                <div class="text-muted small fw-semibold">Listos para Entrega</div>
+                <div class="fs-4 fw-bold text-primary mt-1">@Pedidos.Count(p => p.Estado == "Listo")</div>
+                <div class="small text-muted">Esperando retiro o envío</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-md-3">
+        <div class="card border-0 shadow-sm rounded-3 border-start border-4 border-info">
+            <div class="card-body py-3 px-3">
+                <div class="text-muted small fw-semibold">Retiro en Tienda (Pick Up)</div>
+                <div class="fs-4 fw-bold text-dark mt-1">@Pedidos.Count(p => p.EsPickUp && p.Estado != "Entregado")</div>
+                <div class="small text-muted">Clientes pasan a tienda</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-sm-6 col-md-3">
+        <div class="card border-0 shadow-sm rounded-3 border-start border-4 border-success">
+            <div class="card-body py-3 px-3">
+                <div class="text-muted small fw-semibold">Envío a Domicilio</div>
+                <div class="fs-4 fw-bold text-success mt-1">@Pedidos.Count(p => !p.EsPickUp && p.Estado != "Entregado")</div>
+                <div class="small text-muted">Despacho a dirección</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Barra de Filtros y Búsqueda -->
+<div class="card border-0 shadow-sm p-3 mb-4 bg-white rounded-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-12 col-md-4">
+            <div class="input-group input-group-sm">
+                <input type="text" class="form-control" placeholder="Buscar por N° Ticket, nombre o teléfono..."
+                       @bind="FiltroBusqueda" @bind:event="oninput" />
+                @if (!string.IsNullOrEmpty(FiltroBusqueda))
+                {
+                    <button class="btn btn-outline-secondary" type="button" @onclick='() => FiltroBusqueda = ""'>&times;</button>
+                }
+            </div>
+        </div>
+        <div class="col-12 col-md-5">
+            <div class="d-flex flex-wrap gap-1">
+                <button type="button" class="btn btn-sm @(FiltroEstado == "ACTIVOS" ? "btn-success" : "btn-outline-secondary")"
+                        @onclick='() => FiltroEstado = "ACTIVOS"'>
+                    Por Atender (@Pedidos.Count(p => p.Estado != "Entregado"))
+                </button>
+                <button type="button" class="btn btn-sm @(FiltroEstado == "PICKUP" ? "btn-primary" : "btn-outline-secondary")"
+                        @onclick='() => FiltroEstado = "PICKUP"'>
+                    Solo Pick Up (@Pedidos.Count(p => p.EsPickUp))
+                </button>
+                <button type="button" class="btn btn-sm @(FiltroEstado == "DOMICILIO" ? "btn-primary" : "btn-outline-secondary")"
+                        @onclick='() => FiltroEstado = "DOMICILIO"'>
+                    Solo Domicilio (@Pedidos.Count(p => !p.EsPickUp))
+                </button>
+                <button type="button" class="btn btn-sm @(FiltroEstado == "ENTREGADOS" ? "btn-dark" : "btn-outline-secondary")"
+                        @onclick='() => FiltroEstado = "ENTREGADOS"'>
+                    Entregados (@Pedidos.Count(p => p.Estado == "Entregado"))
+                </button>
+                <button type="button" class="btn btn-sm @(FiltroEstado == "TODOS" ? "btn-secondary" : "btn-outline-secondary")"
+                        @onclick='() => FiltroEstado = "TODOS"'>
+                    Todos (@Pedidos.Count)
+                </button>
+            </div>
+        </div>
+        <div class="col-12 col-md-3 text-md-end">
+            <span class="badge bg-light text-secondary border small">
+                Mostrando: @PedidosFiltrados.Count pedido(s)
+            </span>
+        </div>
+    </div>
+</div>
+
+<!-- Tabla de Pedidos de la App Móvil -->
+<div class="card border-0 shadow-sm rounded-3">
+    <div class="card-body p-0">
+        @if (isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-success" role="status"></div>
+                <div class="mt-2 text-muted small">Cargando pedidos de la App Móvil...</div>
+            </div>
+        }
+        else if (!PedidosFiltrados.Any())
+        {
+            <div class="text-center py-5 text-muted">
+                <div class="fw-semibold">No hay pedidos móviles en esta vista</div>
+                <div class="small mt-1">Cuando un cliente confirme una compra desde la App Móvil, aparecerá aquí con la lista de productos a preparar.</div>
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Ticket</th>
+                            <th>Fecha y Hora</th>
+                            <th>Modalidad de Entrega</th>
+                            <th>Cliente y Teléfono</th>
+                            <th>Dirección / Destino</th>
+                            <th class="text-center">Artículos</th>
+                            <th class="text-end">Total Efectivo</th>
+                            <th class="text-center">Estado</th>
+                            <th class="text-center" style="width: 240px;">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in PedidosFiltrados)
+                        {
+                            <tr>
+                                <td class="fw-bold font-monospace text-success">@p.NumComprobante</td>
+                                <td class="text-muted">@p.FechaPedido.ToString("dd/MM/yyyy hh:mm tt")</td>
+                                <td>
+                                    @if (p.EsPickUp)
+                                    {
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary px-2 py-1 fw-bold">
+                                            RETIRO EN TIENDA (PICK UP)
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success bg-opacity-10 text-success border border-success px-2 py-1 fw-bold">
+                                            ENVÍO A DOMICILIO
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="fw-semibold text-dark">@p.ClienteNombre</div>
+                                    <div class="text-muted small">Tel: @(string.IsNullOrWhiteSpace(p.ClienteTelefono) ? "No especificado" : p.ClienteTelefono)</div>
+                                </td>
+                                <td style="max-width: 240px;">
+                                    <div class="text-truncate" title="@p.DireccionEntrega">
+                                        @p.DireccionEntrega
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-light text-dark border fw-bold">
+                                        @p.Items.Count prod.
+                                    </span>
+                                </td>
+                                <td class="text-end fw-bold fs-6">$@p.Total.ToString("F2")</td>
+                                <td class="text-center">
+                                    @if (p.Estado == "Pendiente")
+                                    {
+                                        <span class="badge bg-warning text-dark fw-bold">Pendiente de Sacar</span>
+                                    }
+                                    else if (p.Estado == "En Preparación")
+                                    {
+                                        <span class="badge bg-info text-dark fw-bold">En Preparación</span>
+                                    }
+                                    else if (p.Estado == "Listo")
+                                    {
+                                        <span class="badge bg-primary fw-bold">Listo para Entrega</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-success fw-bold">Entregado</span>
+                                    }
+                                </td>
+                                <td class="text-center">
+                                    <div class="d-inline-flex gap-1">
+                                        <button type="button" class="btn btn-success btn-sm py-1 px-2 fw-semibold"
+                                                @onclick="() => AbrirDetallePedido(p)">
+                                            Ver Productos a Sacar
+                                        </button>
+                                        @if (p.Estado != "Entregado")
+                                        {
+                                            <button type="button" class="btn btn-outline-primary btn-sm py-1 px-2 fw-semibold"
+                                                    disabled="@isUpdatingStatus"
+                                                    @onclick="() => AvanzarEstadoRapido(p)">
+                                                @(p.Estado == "Listo" ? "Entregar" : "Listo")
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- MODAL DE PREPARACIÓN DE PEDIDO (PICKING LIST) Y TICKET -->
+@if (PedidoSeleccionado != null)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.55);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-3">
+                <div class="modal-header border-bottom py-3 bg-light">
+                    <div>
+                        <h6 class="modal-title fw-bold mb-0">
+                            Orden de Preparación — Ticket @PedidoSeleccionado.NumComprobante
+                        </h6>
+                        <small class="text-muted">
+                            Fecha: @PedidoSeleccionado.FechaPedido.ToString("dd/MM/yyyy hh:mm tt")
+                        </small>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CerrarDetallePedido"></button>
+                </div>
+
+                <div class="modal-body p-4">
+                    <!-- Banner de Modalidad y Datos del Cliente -->
+                    <div class="p-3 rounded-3 border mb-3 @(PedidoSeleccionado.EsPickUp ? "bg-primary bg-opacity-10 border-primary" : "bg-success bg-opacity-10 border-success")">
+                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                            <div>
+                                <div class="fw-bold @(PedidoSeleccionado.EsPickUp ? "text-primary" : "text-success")">
+                                    @(PedidoSeleccionado.EsPickUp ? "MODALIDAD: RETIRO EN TIENDA (PICK UP)" : "MODALIDAD: ENVÍO A DOMICILIO")
+                                </div>
+                                <div class="fw-bold text-dark mt-1">Cliente: @PedidoSeleccionado.ClienteNombre</div>
+                                <div class="small text-dark">Teléfono: @(string.IsNullOrWhiteSpace(PedidoSeleccionado.ClienteTelefono) ? "No especificado" : PedidoSeleccionado.ClienteTelefono)</div>
+                                <div class="small text-dark mt-1">
+                                    <strong>@(PedidoSeleccionado.EsPickUp ? "Sucursal de Retiro:" : "Dirección de Entrega:")</strong> @PedidoSeleccionado.DireccionEntrega
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <div class="small text-muted">Método de Pago</div>
+                                <div class="fw-bold text-dark">Efectivo Contra Entrega</div>
+                                <div class="small text-muted mt-1">Estado Actual</div>
+                                <span class="badge @(PedidoSeleccionado.Estado == "Entregado" ? "bg-success" : (PedidoSeleccionado.Estado == "Listo" ? "bg-primary" : "bg-warning text-dark"))">
+                                    @PedidoSeleccionado.Estado
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Lista de Productos a Sacar de Estantería -->
+                    <h6 class="fw-bold mb-2">Lista de Productos a Sacar de Estantería (@PedidoSeleccionado.Items.Count artículos)</h6>
+                    <div class="table-responsive border rounded-3 mb-3">
+                        <table class="table table-sm table-striped align-middle mb-0 small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Código / SKU</th>
+                                    <th>Producto</th>
+                                    <th class="text-center">Unidad</th>
+                                    <th class="text-center">Cantidad a Sacar</th>
+                                    <th class="text-end">Precio Unit.</th>
+                                    <th class="text-end">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (!PedidoSeleccionado.Items.Any())
+                                {
+                                    <tr>
+                                        <td colspan="6" class="text-center py-3 text-muted">
+                                            Detalle de líneas no disponible para este registro.
+                                        </td>
+                                    </tr>
+                                }
+                                else
+                                {
+                                    @foreach (var item in PedidoSeleccionado.Items)
+                                    {
+                                        <tr>
+                                            <td class="font-monospace fw-semibold text-secondary">@item.Codigo</td>
+                                            <td class="fw-bold text-dark">@item.Nombre</td>
+                                            <td class="text-center">
+                                                <span class="badge bg-light text-dark border">@item.UnidadMedida</span>
+                                            </td>
+                                            <td class="text-center">
+                                                <span class="badge bg-success fs-6 px-3 py-1">
+                                                    @(item.Cantidad % 1 == 0 ? item.Cantidad.ToString("F0") : item.Cantidad.ToString("F2"))
+                                                </span>
+                                            </td>
+                                            <td class="text-end">$@item.PrecioUnitario.ToString("F2")</td>
+                                            <td class="text-end fw-bold">$@item.Subtotal.ToString("F2")</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                            <tfoot class="table-light">
+                                <tr>
+                                    <td colspan="5" class="text-end fw-bold">TOTAL VENTAS GRAVADAS (EFECTIVO):</td>
+                                    <td class="text-end fw-bold fs-5 text-success">$@PedidoSeleccionado.Total.ToString("F2")</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <!-- Controles para cambiar el Estado del Pedido -->
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 pt-2 border-top">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <span class="small fw-semibold text-muted">Cambiar Estado:</span>
+                            <button type="button" class="btn btn-sm @(PedidoSeleccionado.Estado == "En Preparación" ? "btn-info" : "btn-outline-secondary")"
+                                    disabled="@isUpdatingStatus"
+                                    @onclick='() => CambiarEstadoPedido(PedidoSeleccionado, "En Preparación")'>
+                                En Preparación
+                            </button>
+                            <button type="button" class="btn btn-sm @(PedidoSeleccionado.Estado == "Listo" ? "btn-primary" : "btn-outline-primary")"
+                                    disabled="@isUpdatingStatus"
+                                    @onclick='() => CambiarEstadoPedido(PedidoSeleccionado, "Listo")'>
+                                Listo para @(PedidoSeleccionado.EsPickUp ? "Retiro en Tienda" : "Envío")
+                            </button>
+                            <button type="button" class="btn btn-sm @(PedidoSeleccionado.Estado == "Entregado" ? "btn-success" : "btn-outline-success")"
+                                    disabled="@isUpdatingStatus"
+                                    @onclick='() => CambiarEstadoPedido(PedidoSeleccionado, "Entregado")'>
+                                Marcar como Entregado
+                            </button>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-dark fw-semibold" @onclick="() => ImprimirTicketPedido(PedidoSeleccionado)">
+                                Imprimir Ticket
+                            </button>
+                            <button type="button" class="btn btn-sm btn-secondary" @onclick="CerrarDetallePedido">
+                                Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    public class PedidoMovilItemVm
+    {
+        public int IdProducto { get; set; }
+        public string Codigo { get; set; } = "";
+        public string Nombre { get; set; } = "";
+        public string UnidadMedida { get; set; } = "Unidad";
+        public decimal Cantidad { get; set; }
+        public decimal PrecioUnitario { get; set; }
+        public decimal Subtotal { get; set; }
+    }
+
+    public class PedidoMovilVm
+    {
+        public int IdPromoHeader { get; set; }
+        public Promocion RawHeader { get; set; } = new();
+        public string NumComprobante { get; set; } = "";
+        public int IdCliente { get; set; }
+        public string ModalidadEntrega { get; set; } = "Envío a Domicilio";
+        public bool EsPickUp => ModalidadEntrega.Contains("Retiro", StringComparison.OrdinalIgnoreCase) || ModalidadEntrega.Contains("Pick", StringComparison.OrdinalIgnoreCase);
+        public string ClienteNombre { get; set; } = "Cliente App Móvil";
+        public string ClienteTelefono { get; set; } = "";
+        public string DireccionEntrega { get; set; } = "";
+        public decimal Total { get; set; }
+        public string Estado { get; set; } = "Pendiente";
+        public DateTime FechaPedido { get; set; } = DateTime.Now;
+        public List<PedidoMovilItemVm> Items { get; set; } = new();
+    }
+
+    private List<PedidoMovilVm> Pedidos = new();
+    private PedidoMovilVm? PedidoSeleccionado;
+    private bool isLoading = true;
+    private bool isUpdatingStatus = false;
+    private string FiltroBusqueda = "";
+    private string FiltroEstado = "ACTIVOS";
+    private string? FeedbackMessage;
+    private bool FeedbackSuccess = true;
+
+    private List<PedidoMovilVm> PedidosFiltrados => Pedidos
+        .Where(p =>
+        {
+            if (FiltroEstado == "ACTIVOS" && p.Estado == "Entregado") return false;
+            if (FiltroEstado == "PICKUP" && !p.EsPickUp) return false;
+            if (FiltroEstado == "DOMICILIO" && p.EsPickUp) return false;
+            if (FiltroEstado == "ENTREGADOS" && p.Estado != "Entregado") return false;
+
+            if (!string.IsNullOrWhiteSpace(FiltroBusqueda))
+            {
+                var q = FiltroBusqueda.Trim().ToLower();
+                return p.NumComprobante.ToLower().Contains(q) ||
+                       p.ClienteNombre.ToLower().Contains(q) ||
+                       p.ClienteTelefono.ToLower().Contains(q) ||
+                       p.DireccionEntrega.ToLower().Contains(q);
+            }
+            return true;
+        })
+        .OrderByDescending(p => p.FechaPedido)
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarPedidos();
+    }
+
+    private async Task CargarPedidos()
+    {
+        isLoading = true;
+        try
+        {
+            var todas = await PromotionService.GetAllAsync() ?? new();
+
+            var headers = todas.Where(x => x.Nombre != null && x.Nombre.StartsWith("[ORD_HDR]|")).ToList();
+            var items = todas.Where(x => x.Nombre != null && x.Nombre.StartsWith("[ORD_ITM]|")).ToList();
+
+            var itemsByTicket = new Dictionary<string, List<PedidoMovilItemVm>>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var it in items)
+            {
+                // Formato Nombre: [ORD_ITM]|TKT-123456|Cantidad|UnidadMedida
+                var nParts = (it.Nombre ?? "").Split('|');
+                if (nParts.Length < 2) continue;
+                string ticket = nParts[1].Trim();
+                decimal cant = nParts.Length >= 3 && decimal.TryParse(nParts[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cVal) ? cVal : 1m;
+                string unidad = nParts.Length >= 4 && !string.IsNullOrWhiteSpace(nParts[3]) ? nParts[3].Trim() : "Unidad";
+
+                // Formato Descripcion: Codigo||NombreProducto||PrecioUnitario
+                var dParts = (it.Descripcion ?? "").Split("||");
+                string codigo = dParts.Length >= 1 && !string.IsNullOrWhiteSpace(dParts[0]) ? dParts[0].Trim() : (it.Producto?.Codigo ?? "-");
+                string prodNombre = dParts.Length >= 2 && !string.IsNullOrWhiteSpace(dParts[1]) ? dParts[1].Trim() : (it.Producto?.Nombre ?? "Producto");
+                decimal precioUnit = dParts.Length >= 3 && decimal.TryParse(dParts[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var pVal)
+                    ? pVal
+                    : (cant > 0 ? Math.Round(it.Valor / cant, 2) : it.Valor);
+
+                if (!itemsByTicket.TryGetValue(ticket, out var list))
+                {
+                    list = new List<PedidoMovilItemVm>();
+                    itemsByTicket[ticket] = list;
+                }
+
+                list.Add(new PedidoMovilItemVm
+                {
+                    IdProducto = it.IdProducto ?? 0,
+                    Codigo = codigo,
+                    Nombre = prodNombre,
+                    UnidadMedida = unidad,
+                    Cantidad = cant,
+                    PrecioUnitario = precioUnit,
+                    Subtotal = it.Valor
+                });
+            }
+
+            var listaResult = new List<PedidoMovilVm>();
+            foreach (var hdr in headers)
+            {
+                // Formato Nombre: [ORD_HDR]|TKT-123456|IdCliente|ModalidadCode|FechaIso
+                var nParts = (hdr.Nombre ?? "").Split('|');
+                string ticket = nParts.Length >= 2 ? nParts[1].Trim() : $"TKT-{hdr.IdPromocion:D6}";
+                int idCli = nParts.Length >= 3 && int.TryParse(nParts[2], out var cId) ? cId : 1;
+                string modCode = nParts.Length >= 4 ? nParts[3].Trim() : "DOMICILIO";
+                string modalidad = modCode.Equals("PICKUP", StringComparison.OrdinalIgnoreCase) || modCode.Contains("Retiro", StringComparison.OrdinalIgnoreCase)
+                    ? "Retiro en Tienda (Pick Up)"
+                    : "Envío a Domicilio";
+
+                DateTime fechaPedido = DateTime.Now;
+                if (nParts.Length >= 5 && DateTime.TryParse(nParts[4], out var parsedDate))
+                {
+                    fechaPedido = parsedDate;
+                }
+
+                // Formato Descripcion: ClienteNombre||ClienteTelefono||DireccionEntrega
+                var dParts = (hdr.Descripcion ?? "").Split("||");
+                string cliNombre = dParts.Length >= 1 && !string.IsNullOrWhiteSpace(dParts[0]) ? dParts[0].Trim() : "Cliente App Móvil";
+                string cliTel = dParts.Length >= 2 ? dParts[1].Trim() : "";
+                string dirEntrega = dParts.Length >= 3 ? dParts[2].Trim() : (modalidad.Contains("Retiro") ? "Retiro en Sucursal Principal" : "Dirección registrada del cliente");
+
+                string estado = string.IsNullOrWhiteSpace(hdr.TipoDescuento) || hdr.TipoDescuento == "MontoFijo" || hdr.TipoDescuento == "Porcentaje"
+                    ? "Pendiente"
+                    : hdr.TipoDescuento.Trim();
+
+                itemsByTicket.TryGetValue(ticket, out var orderItems);
+
+                listaResult.Add(new PedidoMovilVm
+                {
+                    IdPromoHeader = hdr.IdPromocion,
+                    RawHeader = hdr,
+                    NumComprobante = ticket,
+                    IdCliente = idCli,
+                    ModalidadEntrega = modalidad,
+                    ClienteNombre = cliNombre,
+                    ClienteTelefono = cliTel,
+                    DireccionEntrega = dirEntrega,
+                    Total = hdr.Valor,
+                    Estado = estado,
+                    FechaPedido = fechaPedido,
+                    Items = orderItems ?? new List<PedidoMovilItemVm>()
+                });
+            }
+
+            Pedidos = listaResult.OrderByDescending(x => x.FechaPedido).ToList();
+        }
+        catch (Exception ex)
+        {
+            FeedbackSuccess = false;
+            FeedbackMessage = $"Error al cargar pedidos móviles: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void AbrirDetallePedido(PedidoMovilVm p)
+    {
+        PedidoSeleccionado = p;
+    }
+
+    private void CerrarDetallePedido()
+    {
+        PedidoSeleccionado = null;
+    }
+
+    private async Task AvanzarEstadoRapido(PedidoMovilVm p)
+    {
+        string nuevoEstado = p.Estado == "Listo" ? "Entregado" : "Listo";
+        await CambiarEstadoPedido(p, nuevoEstado);
+    }
+
+    private async Task CambiarEstadoPedido(PedidoMovilVm p, string nuevoEstado)
+    {
+        isUpdatingStatus = true;
+        try
+        {
+            p.RawHeader.TipoDescuento = nuevoEstado;
+            var res = await PromotionService.SaveAsync(p.RawHeader);
+            if (res.Success)
+            {
+                p.Estado = nuevoEstado;
+                FeedbackSuccess = true;
+                FeedbackMessage = $"El pedido {p.NumComprobante} fue actualizado a '{nuevoEstado}'.";
+            }
+            else
+            {
+                FeedbackSuccess = false;
+                FeedbackMessage = res.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            FeedbackSuccess = false;
+            FeedbackMessage = $"Error al actualizar estado: {ex.Message}";
+        }
+        finally
+        {
+            isUpdatingStatus = false;
+        }
+    }
+
+    private async Task ImprimirTicketPedido(PedidoMovilVm p)
+    {
+        try
+        {
+            var config = await SettingsService.GetConfiguracionAsync();
+            var ventaTemp = new Venta
+            {
+                NumComprobante = p.NumComprobante,
+                TipoComprobante = "Ticket",
+                MetodoPago = "Efectivo",
+                FechaHora = p.FechaPedido,
+                Subtotal = p.Total,
+                Impuesto = 0m,
+                Total = p.Total,
+                PagoCon = p.Total,
+                Cambio = 0m,
+                Estado = "Completada",
+                Cliente = new Cliente
+                {
+                    Nombre = $"{p.ClienteNombre} ({p.ModalidadEntrega})",
+                    Telefono = p.ClienteTelefono,
+                    Direccion = p.DireccionEntrega
+                },
+                DetalleVentas = p.Items.Select(i => new DetalleVenta
+                {
+                    IdProducto = i.IdProducto,
+                    Cantidad = i.Cantidad,
+                    Precio = i.PrecioUnitario,
+                    Descuento = 0m,
+                    Subtotal = i.Subtotal,
+                    Producto = new Producto
+                    {
+                        Codigo = i.Codigo,
+                        Nombre = i.Nombre,
+                        UnidadMedida = i.UnidadMedida
+                    }
+                }).ToList()
+            };
+
+            var printRes = await PrintService.PrintReceiptDirectAsync(ventaTemp, config);
+            FeedbackSuccess = printRes.Success;
+            FeedbackMessage = printRes.Message;
+        }
+        catch (Exception ex)
+        {
+            FeedbackSuccess = false;
+            FeedbackMessage = $"Error al enviar ticket a impresora: {ex.Message}";
+        }
+    }
+}

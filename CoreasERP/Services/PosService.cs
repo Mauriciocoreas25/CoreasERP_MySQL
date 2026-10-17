@@ -91,249 +91,254 @@ public class PosService : IPosService
         }
 
         await using var context = await _contextFactory.CreateDbContextAsync();
-        await using var transaction = await context.Database.BeginTransactionAsync();
+        var strategy = context.Database.CreateExecutionStrategy();
+        (bool Success, string Message, Venta? Venta) result = (false, "No se pudo completar la operación.", null);
 
         try
         {
-            // 1. Validar existencias físicas en la base de datos bajo transacción (solo para ventas reales, no presupuestos)
-            if (!esCotizacion)
+            await strategy.ExecuteAsync(async () =>
             {
-                foreach (var item in items)
+                await using var transaction = await context.Database.BeginTransactionAsync();
+
+                // 1. Validar existencias físicas en la base de datos bajo transacción (solo para ventas reales, no presupuestos)
+                if (!esCotizacion)
                 {
-                    var producto = await context.Productos.FindAsync(item.IdProducto);
-                    if (producto == null || !producto.Estado)
+                    foreach (var item in items)
                     {
-                        await transaction.RollbackAsync();
-                        return (false, $"El producto '{item.Nombre}' ya no está disponible en el catálogo.", null);
-                    }
+                        var producto = await context.Productos.FindAsync(item.IdProducto);
+                        if (producto == null || !producto.Estado)
+                        {
+                            await transaction.RollbackAsync();
+                            result = (false, $"El producto '{item.Nombre}' ya no está disponible en el catálogo.", null);
+                            return;
+                        }
 
-                    if (producto.Stock <= 0)
-                    {
-                        await transaction.RollbackAsync();
-                        return (false, $"El producto '{producto.Nombre}' no tiene existencias disponibles (Stock: 0).", null);
-                    }
+                        if (producto.Stock <= 0)
+                        {
+                            await transaction.RollbackAsync();
+                            result = (false, $"El producto '{producto.Nombre}' no tiene existencias disponibles.", null);
+                            return;
+                        }
 
-                    decimal factor = (item.EsGranel && item.CantidadPorEmpaque > 1) ? item.CantidadPorEmpaque : 1m;
-                    decimal cantADescontar = item.Cantidad / factor;
+                        decimal factor = (item.EsGranel && item.CantidadPorEmpaque > 1) ? item.CantidadPorEmpaque : 1m;
+                        decimal cantADescontar = item.Cantidad / factor;
 
-                    if (producto.Stock < cantADescontar)
-                    {
-                        await transaction.RollbackAsync();
-                        return (false, $"Stock insuficiente para '{producto.Nombre}'. Disponible: {producto.Stock:G29}, solicitado equivalente: {cantADescontar:G29}.", null);
-                    }
+                        if (producto.Stock < cantADescontar)
+                        {
+                            await transaction.RollbackAsync();
+                            result = (false, $"Existencias insuficientes para '{producto.Nombre}'.", null);
+                            return;
+                        }
 
-                    // Descontar inventario físico
-                    producto.Stock -= cantADescontar;
-                }
-            }
-
-            // 2. Cálculos financieros (IVA 13% incluido en precio)
-            decimal subtotal = Math.Round(total / 1.13m, 2);
-            decimal impuesto = total - subtotal;
-            decimal montoAbonado = esAnticipo ? Math.Min(pagoCon, total) : (esCotizacion ? 0m : (metodoPago == "Efectivo" ? total : total));
-            decimal saldoPendiente = esAnticipo ? Math.Max(0m, total - pagoCon) : 0m;
-            decimal? cambio = (!esCotizacion && metodoPago == "Efectivo" && pagoCon > total) ? (pagoCon - total) : 0.00m;
-
-            // 3. Generar correlativo DTE / Comprobante
-            var config = await context.ConfiguracionNegocio.FirstOrDefaultAsync();
-            bool dteHabilitado = config?.HabilitarDte ?? true;
-            string? codigoDte = dteHabilitado ? _dteJsonBuilder.MapearTipoComprobanteADte(tipoComprobante) : null;
-
-            int correlativoDte = 1;
-            if (codigoDte != null)
-            {
-                // Buscar el correlativo más alto existente para este tipo de DTE para evitar duplicados en MH
-                string patronControl = $"DTE-{codigoDte}-";
-                var ultimosControles = await context.Ventas
-                    .Where(v => v.NumeroControl != null && v.NumeroControl.StartsWith(patronControl))
-                    .Select(v => v.NumeroControl!)
-                    .ToListAsync();
-
-                int maxCorrelativo = 0;
-                foreach (var ctrl in ultimosControles)
-                {
-                    // Formato: DTE-XX-MXXXPXXX-000000000000XXX (últimos 15 dígitos)
-                    var partes = ctrl.Split('-');
-                    if (partes.Length >= 4 && int.TryParse(partes[3], out int num))
-                    {
-                        if (num > maxCorrelativo) maxCorrelativo = num;
+                        // Descontar inventario físico
+                        producto.Stock -= cantADescontar;
                     }
                 }
 
-                // Iniciar en al menos 101 para evitar colisiones con correlativos de pruebas históricas del emisor
-                correlativoDte = Math.Max(101, maxCorrelativo + 1);
-            }
+                // 2. Cálculos financieros (IVA 13% incluido en precio)
+                decimal subtotal = Math.Round(total / 1.13m, 2);
+                decimal impuesto = total - subtotal;
+                decimal montoAbonado = esAnticipo ? Math.Min(pagoCon, total) : (esCotizacion ? 0m : (metodoPago == "Efectivo" ? total : total));
+                decimal saldoPendiente = esAnticipo ? Math.Max(0m, total - pagoCon) : 0m;
+                decimal? cambio = (!esCotizacion && metodoPago == "Efectivo" && pagoCon > total) ? (pagoCon - total) : 0.00m;
 
-            string codEstable = config?.CodEstablecimiento ?? "M001";
-            string codPunto = config?.CodPuntoVenta ?? "P001";
+                // 3. Generar correlativo DTE / Comprobante
+                var config = await context.ConfiguracionNegocio.FirstOrDefaultAsync();
+                bool dteHabilitado = config?.HabilitarDte ?? true;
+                string? codigoDte = dteHabilitado ? _dteJsonBuilder.MapearTipoComprobanteADte(tipoComprobante) : null;
 
-            string? numControl = codigoDte != null
-                ? _dteJsonBuilder.GenerarNumeroControl(codigoDte, codEstable, codPunto, correlativoDte)
-                : null;
-            string? codGeneracion = codigoDte != null
-                ? _dteJsonBuilder.GenerarCodigoGeneracion()
-                : null;
-
-            string prefijo = tipoComprobante switch
-            {
-                "Factura" => "F",
-                "Credito Fiscal" => "CF",
-                "Anticipo" => "ANT",
-                _ => "T"
-            };
-            string fechaStr = DateTime.Now.ToString("yyyyMMdd");
-            int ventasHoy = await context.Ventas
-                .CountAsync(v => v.FechaHora.Date == DateTime.Today);
-            string numComprobante = numControl ?? $"{prefijo}-{fechaStr}-{(ventasHoy + 1):D4}";
-
-            // 4. Crear registro maestro de Venta
-            var venta = new Venta
-            {
-                IdCliente = idCliente,
-                IdUsuario = idUsuario,
-                TipoComprobante = tipoComprobante,
-                NumComprobante = numComprobante,
-                NumeroControl = numControl,
-                CodigoGeneracion = codGeneracion,
-                EstadoDte = codigoDte != null ? "Pendiente" : "No_Aplica",
-                MetodoPago = metodoPago,
-                Subtotal = subtotal,
-                Impuesto = impuesto,
-                Total = total,
-                PagoCon = esCotizacion ? 0m : (metodoPago == "Efectivo" ? pagoCon : (esAnticipo ? pagoCon : total)),
-                Cambio = cambio,
-                Estado = esCotizacion ? "Cotización" : "Completada",
-                FechaHora = DateTime.Now
-            };
-
-            await context.Ventas.AddAsync(venta);
-            await context.SaveChangesAsync();
-
-            // 5. Crear detalles de venta
-            foreach (var item in items)
-            {
-                var detalle = new DetalleVenta
+                int correlativoDte = 1;
+                if (codigoDte != null)
                 {
-                    IdVenta = venta.IdVenta,
-                    IdProducto = item.IdProducto,
-                    Cantidad = item.Cantidad,
-                    Precio = item.Precio,
-                    Descuento = item.Descuento,
-                    Subtotal = item.Subtotal
+                    string patronControl = $"DTE-{codigoDte}-";
+                    var ultimosControles = await context.Ventas
+                        .Where(v => v.NumeroControl != null && v.NumeroControl.StartsWith(patronControl))
+                        .Select(v => v.NumeroControl!)
+                        .ToListAsync();
+
+                    int maxCorrelativo = 0;
+                    foreach (var ctrl in ultimosControles)
+                    {
+                        var partes = ctrl.Split('-');
+                        if (partes.Length >= 4 && int.TryParse(partes[3], out int num))
+                        {
+                            if (num > maxCorrelativo) maxCorrelativo = num;
+                        }
+                    }
+
+                    correlativoDte = Math.Max(101, maxCorrelativo + 1);
+                }
+
+                string codEstable = config?.CodEstablecimiento ?? "M001";
+                string codPunto = config?.CodPuntoVenta ?? "P001";
+
+                string? numControl = codigoDte != null
+                    ? _dteJsonBuilder.GenerarNumeroControl(codigoDte, codEstable, codPunto, correlativoDte)
+                    : null;
+                string? codGeneracion = codigoDte != null
+                    ? _dteJsonBuilder.GenerarCodigoGeneracion()
+                    : null;
+
+                string prefijo = tipoComprobante switch
+                {
+                    "Factura" => "F",
+                    "Credito Fiscal" => "CF",
+                    "Anticipo" => "ANT",
+                    _ => "T"
                 };
-                await context.DetalleVentas.AddAsync(detalle);
-            }
+                string fechaStr = DateTime.Now.ToString("yyyyMMdd");
+                int ventasHoy = await context.Ventas
+                    .CountAsync(v => v.FechaHora.Date == DateTime.Today);
+                string numComprobante = numControl ?? $"{prefijo}-{fechaStr}-{(ventasHoy + 1):D4}";
 
-            // 6. Si es Anticipo, generar Cuenta por Cobrar y registrar Abono inicial si hubo pago
-            if (esAnticipo)
-            {
-                var cuentaCobrar = new CuentaCobrar
+                // 4. Crear registro maestro de Venta
+                var venta = new Venta
                 {
-                    IdVenta = venta.IdVenta,
                     IdCliente = idCliente,
-                    MontoTotal = total,
-                    SaldoPendiente = saldoPendiente,
-                    FechaEmision = DateTime.Now,
-                    FechaVencimiento = DateTime.Now.AddDays(30),
-                    Estado = saldoPendiente > 0 ? "Pendiente" : "Pagada"
+                    IdUsuario = idUsuario,
+                    TipoComprobante = tipoComprobante,
+                    NumComprobante = numComprobante,
+                    NumeroControl = numControl,
+                    CodigoGeneracion = codGeneracion,
+                    EstadoDte = codigoDte != null ? "Pendiente" : "No_Aplica",
+                    MetodoPago = metodoPago,
+                    Subtotal = subtotal,
+                    Impuesto = impuesto,
+                    Total = total,
+                    PagoCon = esCotizacion ? 0m : (metodoPago == "Efectivo" ? pagoCon : (esAnticipo ? pagoCon : total)),
+                    Cambio = cambio,
+                    Estado = esCotizacion ? "Cotización" : "Completada",
+                    FechaHora = DateTime.Now
                 };
-                await context.CuentasCobrar.AddAsync(cuentaCobrar);
+
+                await context.Ventas.AddAsync(venta);
                 await context.SaveChangesAsync();
 
-                if (montoAbonado > 0)
+                // 5. Crear detalles de venta
+                foreach (var item in items)
                 {
-                    var abonoInicial = new Abono
+                    var detalle = new DetalleVenta
                     {
-                        IdCuentaCobrar = cuentaCobrar.IdCuentaCobrar,
-                        IdUsuario = idUsuario,
-                        Monto = montoAbonado,
-                        MetodoPago = metodoPago,
-                        FechaHora = DateTime.Now,
-                        Notas = $"Anticipo inicial en comprobante {venta.NumComprobante}"
+                        IdVenta = venta.IdVenta,
+                        IdProducto = item.IdProducto,
+                        Cantidad = item.Cantidad,
+                        Precio = item.Precio,
+                        Descuento = item.Descuento,
+                        Subtotal = item.Subtotal
                     };
-                    await context.Abonos.AddAsync(abonoInicial);
+                    await context.DetalleVentas.AddAsync(detalle);
+                }
+
+                // 6. Si es Anticipo, generar Cuenta por Cobrar y registrar Abono inicial si hubo pago
+                if (esAnticipo)
+                {
+                    var cuentaCobrar = new CuentaCobrar
+                    {
+                        IdVenta = venta.IdVenta,
+                        IdCliente = idCliente,
+                        MontoTotal = total,
+                        SaldoPendiente = saldoPendiente,
+                        FechaEmision = DateTime.Now,
+                        FechaVencimiento = DateTime.Now.AddDays(30),
+                        Estado = saldoPendiente > 0 ? "Pendiente" : "Pagada"
+                    };
+                    await context.CuentasCobrar.AddAsync(cuentaCobrar);
                     await context.SaveChangesAsync();
-                }
-            }
 
-            // 7. Si el pago es en efectivo, acumular al turno de caja activo solo el dinero real ingresado (las cotizaciones no suman dinero)
-            if (metodoPago == "Efectivo" && !esCotizacion)
-            {
-                var corteActivo = await context.CortesCaja
-                    .Where(c => c.IdUsuario == idUsuario && c.Estado == "Abierta")
-                    .OrderByDescending(c => c.FechaApertura)
-                    .FirstOrDefaultAsync();
-
-                if (corteActivo != null)
-                {
-                    // Para anticipos en efectivo ingresa únicamente lo pagado físicamente, no el crédito total
-                    decimal ingresoEfectivo = esAnticipo ? montoAbonado : total;
-                    corteActivo.TotalVentas += ingresoEfectivo;
-                }
-            }
-
-            await context.SaveChangesAsync();
-            await transaction.CommitAsync();
-
-            // Cargar datos de navegación para retornar comprobante completo
-            await context.Entry(venta).Reference(v => v.Cliente).LoadAsync();
-            await context.Entry(venta).Reference(v => v.Usuario).LoadAsync();
-            await context.Entry(venta).Collection(v => v.DetalleVentas).Query().Include(d => d.Producto).LoadAsync();
-
-            // 8. Transmisión DTE oficial a la API FelSv (Ministerio de Hacienda)
-            if (codigoDte != null && (config?.HabilitarDte ?? true) && venta.Cliente != null)
-            {
-                try
-                {
-                    var dtePayload = _dteJsonBuilder.ConstruirPayloadDte(
-                        codigoDte,
-                        venta,
-                        venta.Cliente,
-                        config ?? new ConfiguracionNegocio(),
-                        correlativoDte);
-
-                    if (!string.IsNullOrEmpty(numControl)) dtePayload.NumeroControl = numControl;
-
-                    var dteResult = await _felSvApiService.EmitirDteAsync(dtePayload, config?.FelSvTenantId);
-
-                    await using var updateCtx = await _contextFactory.CreateDbContextAsync();
-                    var vDb = await updateCtx.Ventas.FindAsync(venta.IdVenta);
-                    if (vDb != null)
+                    if (montoAbonado > 0)
                     {
-                        vDb.DteId = dteResult.DteId;
-                        vDb.SelloRecepcion = dteResult.SelloRecepcion;
-                        vDb.EstadoDte = dteResult.Estado ?? (dteResult.Success ? "Transmitido" : "Contingencia_Pendiente");
-                        vDb.RespuestaHacienda = dteResult.MensajeHacienda;
-                        await updateCtx.SaveChangesAsync();
-
-                        venta.DteId = vDb.DteId;
-                        venta.SelloRecepcion = vDb.SelloRecepcion;
-                        venta.EstadoDte = vDb.EstadoDte;
-                        venta.RespuestaHacienda = vDb.RespuestaHacienda;
+                        var abonoInicial = new Abono
+                        {
+                            IdCuentaCobrar = cuentaCobrar.IdCuentaCobrar,
+                            IdUsuario = idUsuario,
+                            Monto = montoAbonado,
+                            MetodoPago = metodoPago,
+                            FechaHora = DateTime.Now,
+                            Notas = $"Anticipo inicial en comprobante {venta.NumComprobante}"
+                        };
+                        await context.Abonos.AddAsync(abonoInicial);
+                        await context.SaveChangesAsync();
                     }
                 }
-                catch (Exception dteEx)
-                {
-                    // Ante cualquier desconexión con FelSv, guardar en contingencia diferida local
-                    await using var updateCtx = await _contextFactory.CreateDbContextAsync();
-                    var vDb = await updateCtx.Ventas.FindAsync(venta.IdVenta);
-                    if (vDb != null)
-                    {
-                        vDb.EstadoDte = "Contingencia_Pendiente";
-                        vDb.RespuestaHacienda = $"Contingencia local: {dteEx.Message}";
-                        await updateCtx.SaveChangesAsync();
 
-                        venta.EstadoDte = vDb.EstadoDte;
-                        venta.RespuestaHacienda = vDb.RespuestaHacienda;
+                // 7. Si el pago es en efectivo, acumular al turno de caja activo solo el dinero real ingresado
+                if (metodoPago == "Efectivo" && !esCotizacion)
+                {
+                    var corteActivo = await context.CortesCaja
+                        .Where(c => c.IdUsuario == idUsuario && c.Estado == "Abierta")
+                        .OrderByDescending(c => c.FechaApertura)
+                        .FirstOrDefaultAsync();
+
+                    if (corteActivo != null)
+                    {
+                        decimal ingresoEfectivo = esAnticipo ? montoAbonado : total;
+                        corteActivo.TotalVentas += ingresoEfectivo;
                     }
                 }
-            }
 
-            return (true, "Venta registrada exitosamente.", venta);
+                await context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                // Cargar datos de navegación para retornar comprobante completo
+                await context.Entry(venta).Reference(v => v.Cliente).LoadAsync();
+                await context.Entry(venta).Reference(v => v.Usuario).LoadAsync();
+                await context.Entry(venta).Collection(v => v.DetalleVentas).Query().Include(d => d.Producto).LoadAsync();
+
+                // 8. Transmisión DTE oficial a la API FelSv (Ministerio de Hacienda)
+                if (codigoDte != null && (config?.HabilitarDte ?? true) && venta.Cliente != null)
+                {
+                    try
+                    {
+                        var dtePayload = _dteJsonBuilder.ConstruirPayloadDte(
+                            codigoDte,
+                            venta,
+                            venta.Cliente,
+                            config ?? new ConfiguracionNegocio(),
+                            correlativoDte);
+
+                        if (!string.IsNullOrEmpty(numControl)) dtePayload.NumeroControl = numControl;
+
+                        var dteResult = await _felSvApiService.EmitirDteAsync(dtePayload, config?.FelSvTenantId);
+
+                        await using var updateCtx = await _contextFactory.CreateDbContextAsync();
+                        var vDb = await updateCtx.Ventas.FindAsync(venta.IdVenta);
+                        if (vDb != null)
+                        {
+                            vDb.DteId = dteResult.DteId;
+                            vDb.SelloRecepcion = dteResult.SelloRecepcion;
+                            vDb.EstadoDte = dteResult.Estado ?? (dteResult.Success ? "Transmitido" : "Contingencia_Pendiente");
+                            vDb.RespuestaHacienda = dteResult.MensajeHacienda;
+                            await updateCtx.SaveChangesAsync();
+
+                            venta.DteId = vDb.DteId;
+                            venta.SelloRecepcion = vDb.SelloRecepcion;
+                            venta.EstadoDte = vDb.EstadoDte;
+                            venta.RespuestaHacienda = vDb.RespuestaHacienda;
+                        }
+                    }
+                    catch (Exception dteEx)
+                    {
+                        await using var updateCtx = await _contextFactory.CreateDbContextAsync();
+                        var vDb = await updateCtx.Ventas.FindAsync(venta.IdVenta);
+                        if (vDb != null)
+                        {
+                            vDb.EstadoDte = "Contingencia_Pendiente";
+                            vDb.RespuestaHacienda = $"Contingencia local: {dteEx.Message}";
+                            await updateCtx.SaveChangesAsync();
+
+                            venta.EstadoDte = vDb.EstadoDte;
+                            venta.RespuestaHacienda = vDb.RespuestaHacienda;
+                        }
+                    }
+                }
+
+                result = (true, "Pedido registrado exitosamente.", venta);
+            });
+
+            return result;
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync();
             return (false, $"Error al procesar la venta: {ex.Message}", null);
         }
     }
@@ -341,94 +346,100 @@ public class PosService : IPosService
     public async Task<(bool Success, string Message)> AnularVentaAsync(int idVenta)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
-        await using var transaction = await context.Database.BeginTransactionAsync();
+        var strategy = context.Database.CreateExecutionStrategy();
+        (bool Success, string Message) result = (false, "No se pudo anular la venta.");
 
         try
         {
-            var venta = await context.Ventas
-                .Include(v => v.DetalleVentas)
-                .Include(v => v.Cliente)
-                .Include(v => v.Usuario)
-                .FirstOrDefaultAsync(v => v.IdVenta == idVenta);
-
-            if (venta == null)
+            await strategy.ExecuteAsync(async () =>
             {
-                await transaction.RollbackAsync();
-                return (false, "La venta especificada no existe.");
-            }
+                await using var transaction = await context.Database.BeginTransactionAsync();
 
-            if (venta.Estado == "Anulada")
-            {
-                await transaction.RollbackAsync();
-                return (false, "Esta venta ya fue anulada anteriormente.");
-            }
+                var venta = await context.Ventas
+                    .Include(v => v.DetalleVentas)
+                    .Include(v => v.Cliente)
+                    .Include(v => v.Usuario)
+                    .FirstOrDefaultAsync(v => v.IdVenta == idVenta);
 
-            // Reintegrar las existencias al inventario físico
-            foreach (var detalle in venta.DetalleVentas)
-            {
-                var producto = await context.Productos.FindAsync(detalle.IdProducto);
-                if (producto != null)
+                if (venta == null)
                 {
-                    decimal factor = (producto.CantidadPorEmpaque.HasValue && producto.CantidadPorEmpaque.Value > 1 && producto.PrecioGranel.HasValue && detalle.Precio == producto.PrecioGranel.Value)
-                        ? producto.CantidadPorEmpaque.Value
-                        : 1m;
-                    producto.Stock += (detalle.Cantidad / factor);
+                    await transaction.RollbackAsync();
+                    result = (false, "La venta especificada no existe.");
+                    return;
                 }
-            }
 
-            // Cambiar estado a Anulada
-            venta.Estado = "Anulada";
-
-            // Si el DTE estaba transmitido a Hacienda, enviar solicitud de invalidación (CAT-024)
-            if (venta.EstadoDte == "Transmitido" && !string.IsNullOrEmpty(venta.DteId))
-            {
-                try
+                if (venta.Estado == "Anulada")
                 {
-                    var config = await context.ConfiguracionNegocio.FirstOrDefaultAsync();
-                    var invalReq = new InvalidateDteRequestDto
+                    await transaction.RollbackAsync();
+                    result = (false, "Esta venta ya fue anulada anteriormente.");
+                    return;
+                }
+
+                // Reintegrar las existencias al inventario físico
+                foreach (var detalle in venta.DetalleVentas)
+                {
+                    var producto = await context.Productos.FindAsync(detalle.IdProducto);
+                    if (producto != null)
                     {
-                        DteId = venta.DteId,
-                        TipoAnulacion = 2, // Solicitud del receptor
-                        MotivoAnulacion = "Anulación por devolución de compra o solicitud del cliente",
-                        NombreResponsable = venta.Usuario?.Nombre ?? "Cajero de Turno",
-                        TipDocResponsable = "36",
-                        NumDocResponsable = "06140101001011",
-                        NombreSolicita = venta.Cliente?.Nombre ?? "Cliente General",
-                        TipDocSolicita = "13",
-                        NumDocSolicita = !string.IsNullOrWhiteSpace(venta.Cliente?.NumDocumento) ? venta.Cliente.NumDocumento.Replace("-", "").Trim() : "000000000"
-                    };
-                    var invalRes = await _felSvApiService.InvalidarDteAsync(invalReq, config?.FelSvTenantId);
-                    if (invalRes.Success)
-                    {
-                        venta.EstadoDte = "Invalidado";
-                        venta.RespuestaHacienda = invalRes.Mensaje ?? "DTE Invalidado en MH";
+                        decimal factor = (producto.CantidadPorEmpaque.HasValue && producto.CantidadPorEmpaque.Value > 1 && producto.PrecioGranel.HasValue && detalle.Precio == producto.PrecioGranel.Value)
+                            ? producto.CantidadPorEmpaque.Value
+                            : 1m;
+                        producto.Stock += (detalle.Cantidad / factor);
                     }
                 }
-                catch { }
-            }
 
-            // Si la venta era en efectivo y hay un corte de caja abierto del mismo usuario, ajustar
-            if (venta.MetodoPago == "Efectivo")
-            {
-                var corteActivo = await context.CortesCaja
-                    .Where(c => c.IdUsuario == venta.IdUsuario && c.Estado == "Abierta")
-                    .OrderByDescending(c => c.FechaApertura)
-                    .FirstOrDefaultAsync();
+                venta.Estado = "Anulada";
 
-                if (corteActivo != null && corteActivo.TotalVentas >= venta.Total)
+                if (venta.EstadoDte == "Transmitido" && !string.IsNullOrEmpty(venta.DteId))
                 {
-                    corteActivo.TotalVentas -= venta.Total;
+                    try
+                    {
+                        var config = await context.ConfiguracionNegocio.FirstOrDefaultAsync();
+                        var invalReq = new InvalidateDteRequestDto
+                        {
+                            DteId = venta.DteId,
+                            TipoAnulacion = 2,
+                            MotivoAnulacion = "Anulación por devolución de compra o solicitud del cliente",
+                            NombreResponsable = venta.Usuario?.Nombre ?? "Cajero de Turno",
+                            TipDocResponsable = "36",
+                            NumDocResponsable = "06140101001011",
+                            NombreSolicita = venta.Cliente?.Nombre ?? "Cliente General",
+                            TipDocSolicita = "13",
+                            NumDocSolicita = !string.IsNullOrWhiteSpace(venta.Cliente?.NumDocumento) ? venta.Cliente.NumDocumento.Replace("-", "").Trim() : "000000000"
+                        };
+                        var invalRes = await _felSvApiService.InvalidarDteAsync(invalReq, config?.FelSvTenantId);
+                        if (invalRes.Success)
+                        {
+                            venta.EstadoDte = "Invalidado";
+                            venta.RespuestaHacienda = invalRes.Mensaje ?? "DTE Invalidado en MH";
+                        }
+                    }
+                    catch { }
                 }
-            }
 
-            await context.SaveChangesAsync();
-            await transaction.CommitAsync();
+                if (venta.MetodoPago == "Efectivo")
+                {
+                    var corteActivo = await context.CortesCaja
+                        .Where(c => c.IdUsuario == venta.IdUsuario && c.Estado == "Abierta")
+                        .OrderByDescending(c => c.FechaApertura)
+                        .FirstOrDefaultAsync();
 
-            return (true, $"Venta {venta.NumComprobante} anulada y stock reintegrado correctamente.");
+                    if (corteActivo != null && corteActivo.TotalVentas >= venta.Total)
+                    {
+                        corteActivo.TotalVentas -= venta.Total;
+                    }
+                }
+
+                await context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                result = (true, $"Venta {venta.NumComprobante} anulada y stock reintegrado correctamente.");
+            });
+
+            return result;
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync();
             return (false, $"Error al anular venta: {ex.Message}");
         }
     }

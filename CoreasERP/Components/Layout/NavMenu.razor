@@ -1,6 +1,7 @@
 @inject IAuthService AuthService
 @inject NavigationManager Navigation
 @inject IProductService ProductService
+@inject IPromotionService PromotionService
 @implements IDisposable
 
 <div class="sidebar-header">
@@ -47,6 +48,16 @@
     <li class="sidebar-item">
         <NavLink class="sidebar-link" href="pos">
             <span>POS - Punto de Ventas</span>
+        </NavLink>
+    </li>
+
+    <li class="sidebar-item">
+        <NavLink class="sidebar-link" href="pedidos-movil">
+            <span>Pedidos App Móvil</span>
+            @if (pendingOrdersCount > 0)
+            {
+                <span class="badge-nav-count">@pendingOrdersCount</span>
+            }
         </NavLink>
     </li>
 
@@ -102,6 +113,7 @@
 
 @code {
     private int lowStockCount = 0;
+    private int pendingOrdersCount = 0;
 
     protected override async Task OnInitializedAsync()
     {
@@ -110,10 +122,17 @@
         {
             var lowList = await ProductService.GetLowStockAsync();
             lowStockCount = lowList?.Count ?? 0;
+
+            var allPromos = await PromotionService.GetAllAsync();
+            pendingOrdersCount = allPromos?.Count(x =>
+                x.Nombre != null &&
+                x.Nombre.StartsWith("[ORD_HDR]|") &&
+                x.TipoDescuento != "Entregado") ?? 0;
         }
         catch
         {
             lowStockCount = 0;
+            pendingOrdersCount = 0;
         }
     }
 

@@ -25,6 +25,7 @@ Instalador/publish/
 Instalador/Release/
 Instalador/Debug/
 CoreasERP_Web_Publicacion/
+publish_monsterasp/
 publish/
 
 # Binarios, instaladores, comprimidos y backups pesados (>100MB límite de GitHub)

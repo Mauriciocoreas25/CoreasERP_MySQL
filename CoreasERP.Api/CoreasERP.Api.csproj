@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.2" />
+    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
+    <PackageReference Include="MySqlConnector" Version="2.4.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0" />
+  </ItemGroup>
+
+  <!-- Reutilización directa de Modelos, Data y Servicios de Lógica de Negocio del ERP -->
+  <ItemGroup>
+    <Compile Include="..\CoreasERP\Models\**\*.cs" LinkBase="Models" />
+    <Compile Include="..\CoreasERP\Data\**\*.cs" LinkBase="Data" />
+    <Compile Include="..\CoreasERP\Services\Dte\**\*.cs" LinkBase="Services\Dte" />
+    <Compile Include="..\CoreasERP\Services\AuthService.cs" Link="Services\AuthService.cs" />
+    <Compile Include="..\CoreasERP\Services\CashRegisterService.cs" Link="Services\CashRegisterService.cs" />
+    <Compile Include="..\CoreasERP\Services\CategoryService.cs" Link="Services\CategoryService.cs" />
+    <Compile Include="..\CoreasERP\Services\CreditService.cs" Link="Services\CreditService.cs" />
+    <Compile Include="..\CoreasERP\Services\CustomerService.cs" Link="Services\CustomerService.cs" />
+    <Compile Include="..\CoreasERP\Services\DashboardService.cs" Link="Services\DashboardService.cs" />
+    <Compile Include="..\CoreasERP\Services\NumeroALetrasHelper.cs" Link="Services\NumeroALetrasHelper.cs" />
+    <Compile Include="..\CoreasERP\Services\PosService.cs" Link="Services\PosService.cs" />
+    <Compile Include="..\CoreasERP\Services\PriceChangeService.cs" Link="Services\PriceChangeService.cs" />
+    <Compile Include="..\CoreasERP\Services\ProductService.cs" Link="Services\ProductService.cs" />
+    <Compile Include="..\CoreasERP\Services\PromotionService.cs" Link="Services\PromotionService.cs" />
+    <Compile Include="..\CoreasERP\Services\PurchaseService.cs" Link="Services\PurchaseService.cs" />
+    <Compile Include="..\CoreasERP\Services\SettingsService.cs" Link="Services\SettingsService.cs" />
+    <Compile Include="..\CoreasERP\Services\UserService.cs" Link="Services\UserService.cs" />
+  </ItemGroup>
+
+</Project>

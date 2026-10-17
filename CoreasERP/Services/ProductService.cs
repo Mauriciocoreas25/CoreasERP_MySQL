@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using CoreasERP.Data;
 using CoreasERP.Models;
@@ -21,19 +23,23 @@ public interface IProductService
     Task<List<Producto>> SearchAsync(string? busqueda, int limit = 50, bool? soloActivos = null, bool? soloConStock = null);
     string GenerateRandomBarcode();
     Task<string> GuardarImagenProductoAsync(Stream stream, string fileName);
+    bool AbrirCarpetaImagenesLocal();
 }
 
 public class ProductService : IProductService
 {
+    public const string CarpetaImagenesLocalFija = @"C:\CoreasERP\uploads\products";
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
 
     public ProductService(IDbContextFactory<AppDbContext> contextFactory)
     {
         _contextFactory = contextFactory;
+        SincronizarCarpetaImagenesLocal();
     }
 
     public async Task<List<Producto>> GetAllAsync(string? busqueda = null, int? idCategoria = null, bool? soloActivos = null)
     {
+        SincronizarCarpetaImagenesLocal();
         await using var context = await _contextFactory.CreateDbContextAsync();
         var query = context.Productos
             .Include(p => p.Categoria)
@@ -400,32 +406,104 @@ public class ProductService : IProductService
         return code12 + check.ToString();
     }
 
+    public static void SincronizarCarpetaImagenesLocal()
+    {
+        try
+        {
+            if (!Directory.Exists(CarpetaImagenesLocalFija))
+            {
+                Directory.CreateDirectory(CarpetaImagenesLocalFija);
+            }
+
+            string runtimeDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "uploads", "products");
+            if (!Directory.Exists(runtimeDir))
+            {
+                Directory.CreateDirectory(runtimeDir);
+            }
+
+            // Copiar cualquier imagen de C:\CoreasERP\uploads\products al wwwroot del ejecutable
+            foreach (var file in Directory.GetFiles(CarpetaImagenesLocalFija))
+            {
+                string fileName = Path.GetFileName(file);
+                string destPath = Path.Combine(runtimeDir, fileName);
+                if (!File.Exists(destPath) || File.GetLastWriteTimeUtc(file) > File.GetLastWriteTimeUtc(destPath))
+                {
+                    File.Copy(file, destPath, overwrite: true);
+                }
+            }
+        }
+        catch
+        {
+            // Ignorar errores de permisos en sincronización silenciosa
+        }
+    }
+
+    public static async Task SubirImagenAlServidorCloudAsync(string fileName, byte[] bytes)
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            var payload = new
+            {
+                NombreArchivo = fileName,
+                ContenidoBase64 = Convert.ToBase64String(bytes)
+            };
+            await http.PostAsJsonAsync("http://coreaserp.runasp.net/api/productos/upload-imagen", payload);
+        }
+        catch
+        {
+            // Si no hay internet en el momento o la API no responde, continúa sin bloquear el sistema local
+        }
+    }
+
+    public bool AbrirCarpetaImagenesLocal()
+    {
+        try
+        {
+            SincronizarCarpetaImagenesLocal();
+            Process.Start("explorer.exe", CarpetaImagenesLocalFija);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<string> GuardarImagenProductoAsync(Stream stream, string fileName)
     {
         string ext = Path.GetExtension(fileName);
         if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
-        string uniqueName = $"prod_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N")[..6]}{ext}";
+        string cleanName = Path.GetFileNameWithoutExtension(fileName);
+        // Si el archivo ya viene con código o nombre limpio, conservarlo o generar único seguro
+        string safeBase = System.Text.RegularExpressions.Regex.Replace(cleanName, @"[^a-zA-Z0-9_\-]", "_");
+        if (string.IsNullOrWhiteSpace(safeBase)) safeBase = $"prod_{DateTime.Now:yyyyMMdd_HHmmss}";
+        string uniqueName = $"{safeBase}{ext}";
         string relativePath = $"uploads/products/{uniqueName}";
-
-        // 1. Guardar en wwwroot de ejecución
-        string runtimeDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "uploads", "products");
-        if (!Directory.Exists(runtimeDir))
-        {
-            Directory.CreateDirectory(runtimeDir);
-        }
-        string runtimePath = Path.Combine(runtimeDir, uniqueName);
 
         using var ms = new MemoryStream();
         await stream.CopyToAsync(ms);
         byte[] bytes = ms.ToArray();
 
-        await File.WriteAllBytesAsync(runtimePath, bytes);
+        // 1. Guardar en la carpeta fija del Disco Local C: (C:\CoreasERP\uploads\products)
+        if (!Directory.Exists(CarpetaImagenesLocalFija))
+        {
+            Directory.CreateDirectory(CarpetaImagenesLocalFija);
+        }
+        await File.WriteAllBytesAsync(Path.Combine(CarpetaImagenesLocalFija, uniqueName), bytes);
 
-        // 2. Guardar también en el proyecto fuente para persistir entre builds
+        // 2. Guardar en wwwroot de ejecución del ejecutable instalado
+        string runtimeDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wwwroot", "uploads", "products");
+        if (!Directory.Exists(runtimeDir))
+        {
+            Directory.CreateDirectory(runtimeDir);
+        }
+        await File.WriteAllBytesAsync(Path.Combine(runtimeDir, uniqueName), bytes);
+
+        // 3. Guardar también en el proyecto fuente si existe (modo desarrollo)
         try
         {
             string baseDir = AppContext.BaseDirectory;
-            // Subir desde bin\Debug\net9.0-windows...\win10-x64 a la raíz del proyecto
             string projectDir = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "..", "wwwroot", "uploads", "products"));
             if (Directory.Exists(Path.GetDirectoryName(projectDir)))
             {
@@ -435,8 +513,10 @@ public class ProductService : IProductService
         }
         catch
         {
-            // Ignorar si no se puede acceder a la ruta de desarrollo
         }
+
+        // 4. Sincronizar archivo hacia la carpeta uploads/products del servidor web para la App Móvil
+        await SubirImagenAlServidorCloudAsync(uniqueName, bytes);
 
         return relativePath;
     }

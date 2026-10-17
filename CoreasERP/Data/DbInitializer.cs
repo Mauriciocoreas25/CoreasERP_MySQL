@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using MySqlConnector;
 using CoreasERP.Models;
 
@@ -8,38 +10,31 @@ public static class DbInitializer
 {
     public static async Task InitializeAsync(AppDbContext context)
     {
-        // 0. Asegurar que el esquema/base de datos exista en el servidor MySQL antes de conectar con EF Core
+        // 1. Verificar si las tablas ya existen en la base de datos actual (compatible con Cloud MySQL como MonsterASP.NET donde la BD ya viene creada)
+        bool tablesExist = false;
         try
         {
-            var connString = context.Database.GetConnectionString();
-            if (!string.IsNullOrWhiteSpace(connString))
-            {
-                var builder = new MySqlConnectionStringBuilder(connString);
-                var dbName = builder.Database;
-                if (!string.IsNullOrWhiteSpace(dbName))
-                {
-                    builder.Database = "";
-                    await using var serverConn = new MySqlConnection(builder.ConnectionString);
-                    await serverConn.OpenAsync();
-                    await using var cmd = serverConn.CreateCommand();
-                    cmd.CommandText = $"CREATE DATABASE IF NOT EXISTS `{dbName.Replace("`", "")}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
-                    await cmd.ExecuteNonQueryAsync();
-                }
-            }
+            _ = await context.Roles.AnyAsync();
+            tablesExist = true;
         }
         catch
         {
-            // Continuar para que EnsureCreatedAsync o CanConnectAsync reporte cualquier detalle si el servidor no responde
+            tablesExist = false;
         }
 
-        // 1. Crear automáticamente las tablas si no existen
-        try
+        if (!tablesExist)
         {
-            await context.Database.EnsureCreatedAsync();
-        }
-        catch (Exception ex)
-        {
-            throw new Exception($"No se pudo conectar o inicializar la base de datos en MySQL ({ex.Message}). Verifica que tu servidor MySQL / MariaDB (Laragon, XAMPP o MySQL Server) esté encendido en el puerto configurado.", ex);
+            try
+            {
+                // Intentar crear las tablas directamente en la base de datos asignada sin requerir permisos de root (CREATE DATABASE)
+                var databaseCreator = context.Database.GetService<IRelationalDatabaseCreator>();
+                await databaseCreator.CreateTablesAsync();
+            }
+            catch
+            {
+                // Si la BD local aún no existe (ej. XAMPP/Laragon local), EnsureCreatedAsync la crea junto con sus tablas
+                await context.Database.EnsureCreatedAsync();
+            }
         }
 
         // 2. Garantizar que las columnas y tablas nuevas existan (Migración automática segura para MySQL)
@@ -138,6 +133,18 @@ public static class DbInitializer
 
     private static async Task EnsureSchemaUpToDateAsync(AppDbContext context)
     {
+        try
+        {
+            // Verificar rápido si la última columna de migración (CortarPapel) y tabla Mermas ya existen para evitar 13 llamadas de red innecesarias
+            await context.Database.ExecuteSqlRawAsync("SELECT `CortarPapel` FROM `ConfiguracionNegocio` LIMIT 1;");
+            await context.Database.ExecuteSqlRawAsync("SELECT `IdMerma` FROM `Mermas` LIMIT 1;");
+            return;
+        }
+        catch
+        {
+            // Si falta alguna columna o tabla de versiones anteriores, aplicar migraciones
+        }
+
         var migrations = new[]
         {
             // Productos

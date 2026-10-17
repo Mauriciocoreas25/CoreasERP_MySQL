@@ -72,56 +72,66 @@ public class CreditService : ICreditService
             return (false, "El monto del abono debe ser mayor a cero.", null);
 
         await using var context = await _contextFactory.CreateDbContextAsync();
-        await using var transaction = await context.Database.BeginTransactionAsync();
+        var strategy = context.Database.CreateExecutionStrategy();
+        (bool Success, string Message, Abono? Abono) result = (false, "No se pudo registrar el abono.", null);
 
         try
         {
-            var cuenta = await context.CuentasCobrar.FindAsync(idCuentaCobrar);
-            if (cuenta == null)
+            await strategy.ExecuteAsync(async () =>
             {
-                await transaction.RollbackAsync();
-                return (false, "Cuenta por cobrar no encontrada.", null);
-            }
+                await using var transaction = await context.Database.BeginTransactionAsync();
 
-            if (cuenta.Estado == "Pagada")
-            {
-                await transaction.RollbackAsync();
-                return (false, "Esta cuenta ya se encuentra totalmente saldada.", null);
-            }
+                var cuenta = await context.CuentasCobrar.FindAsync(idCuentaCobrar);
+                if (cuenta == null)
+                {
+                    await transaction.RollbackAsync();
+                    result = (false, "Cuenta por cobrar no encontrada.", null);
+                    return;
+                }
 
-            if (monto > cuenta.SaldoPendiente)
-            {
-                await transaction.RollbackAsync();
-                return (false, $"El abono (${monto:F2}) excede el saldo pendiente (${cuenta.SaldoPendiente:F2}).", null);
-            }
+                if (cuenta.Estado == "Pagada")
+                {
+                    await transaction.RollbackAsync();
+                    result = (false, "Esta cuenta ya se encuentra totalmente saldada.", null);
+                    return;
+                }
 
-            var abono = new Abono
-            {
-                IdCuentaCobrar = idCuentaCobrar,
-                IdUsuario = idUsuario,
-                Monto = monto,
-                MetodoPago = metodoPago,
-                FechaHora = DateTime.Now,
-                Notas = notas
-            };
+                if (monto > cuenta.SaldoPendiente)
+                {
+                    await transaction.RollbackAsync();
+                    result = (false, $"El abono (${monto:F2}) excede el saldo pendiente (${cuenta.SaldoPendiente:F2}).", null);
+                    return;
+                }
 
-            await context.Abonos.AddAsync(abono);
+                var abono = new Abono
+                {
+                    IdCuentaCobrar = idCuentaCobrar,
+                    IdUsuario = idUsuario,
+                    Monto = monto,
+                    MetodoPago = metodoPago,
+                    FechaHora = DateTime.Now,
+                    Notas = notas
+                };
 
-            cuenta.SaldoPendiente -= monto;
-            if (cuenta.SaldoPendiente <= 0)
-            {
-                cuenta.SaldoPendiente = 0;
-                cuenta.Estado = "Pagada";
-            }
+                await context.Abonos.AddAsync(abono);
 
-            await context.SaveChangesAsync();
-            await transaction.CommitAsync();
+                cuenta.SaldoPendiente -= monto;
+                if (cuenta.SaldoPendiente <= 0)
+                {
+                    cuenta.SaldoPendiente = 0;
+                    cuenta.Estado = "Pagada";
+                }
 
-            return (true, "Abono registrado exitosamente.", abono);
+                await context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                result = (true, "Abono registrado exitosamente.", abono);
+            });
+
+            return result;
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync();
             return (false, $"Error al registrar abono: {ex.Message}", null);
         }
     }

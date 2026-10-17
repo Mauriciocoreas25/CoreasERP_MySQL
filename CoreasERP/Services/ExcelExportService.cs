@@ -933,6 +933,8 @@ public class ExcelExportService : IExcelExportService
 
     private async Task<ExcelImportResult> ProcesarMatrizImportacionAsync(List<List<string>> matriz, AppDbContext context, ExcelImportResult result)
     {
+        ProductService.SincronizarCarpetaImagenesLocal();
+
         var categoriasExistentes = await context.Categorias.ToListAsync();
         var dictCategorias = categoriasExistentes.ToDictionary(c => c.Nombre.Trim().ToLower(), c => c);
 
@@ -947,6 +949,7 @@ public class ExcelExportService : IExcelExportService
         int colStockMinimo = -1;
         int colMargenExcepcion = -1;
         int colPresentacion = -1;
+        int colImagen = -1;
 
         // Escanear las primeras 6 filas para detectar encabezados dinámicamente
         int scanRows = Math.Min(6, matriz.Count);
@@ -1018,6 +1021,10 @@ public class ExcelExportService : IExcelExportService
                     {
                         colPresentacion = c;
                     }
+                    else if ((h.Contains("imagen") || h.Contains("foto") || h.Contains("ruta") || h.Contains("archivo") || h.Contains("url")) && colImagen == -1)
+                    {
+                        colImagen = c;
+                    }
                 }
                 break;
             }
@@ -1033,12 +1040,30 @@ public class ExcelExportService : IExcelExportService
         if (colStockMinimo == -1) colStockMinimo = 7;
         if (colMargenExcepcion == -1) colMargenExcepcion = 8;
         if (colPresentacion == -1) colPresentacion = 9;
+        if (colImagen == -1) colImagen = 10;
 
         if (matriz.Count <= startRow)
         {
             result.Exitoso = false;
             result.Mensaje = "No se encontraron filas de productos para importar debajo de los encabezados.";
             return result;
+        }
+
+        // Indexar archivos disponibles en C:\CoreasERP\uploads\products para asociación rápida
+        var archivosLocales = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var archivosPorNombreSinExt = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (Directory.Exists(ProductService.CarpetaImagenesLocalFija))
+        {
+            foreach (var filePath in Directory.GetFiles(ProductService.CarpetaImagenesLocalFija))
+            {
+                string fileName = Path.GetFileName(filePath);
+                string nameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
+                archivosLocales[fileName] = filePath;
+                if (!archivosPorNombreSinExt.ContainsKey(nameWithoutExt))
+                {
+                    archivosPorNombreSinExt[nameWithoutExt] = filePath;
+                }
+            }
         }
 
         for (int r = startRow; r < matriz.Count; r++)
@@ -1065,6 +1090,39 @@ public class ExcelExportService : IExcelExportService
 
             string presentacion = colPresentacion >= 0 ? GetCol(colPresentacion) : "Unidad";
             if (string.IsNullOrWhiteSpace(presentacion)) presentacion = "Unidad";
+
+            string rawImagen = colImagen >= 0 ? GetCol(colImagen) : "";
+            string? rutaImagenResuelta = null;
+
+            if (!string.IsNullOrWhiteSpace(rawImagen))
+            {
+                if (rawImagen.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    rawImagen.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    rutaImagenResuelta = rawImagen.Trim();
+                }
+                else
+                {
+                    string cleanFileName = Path.GetFileName(rawImagen.Replace('/', Path.DirectorySeparatorChar));
+                    if (!string.IsNullOrWhiteSpace(cleanFileName))
+                    {
+                        rutaImagenResuelta = $"uploads/products/{cleanFileName}";
+                        if (archivosLocales.TryGetValue(cleanFileName, out var localFullPath))
+                        {
+                            byte[] imgBytes = await File.ReadAllBytesAsync(localFullPath);
+                            await ProductService.SubirImagenAlServidorCloudAsync(cleanFileName, imgBytes);
+                        }
+                    }
+                }
+            }
+            else if (archivosPorNombreSinExt.TryGetValue(codigo, out var matchedByCodePath))
+            {
+                // Asociación automática si la foto en C:\CoreasERP\uploads\products se llama igual que el Código/SKU
+                string matchedFileName = Path.GetFileName(matchedByCodePath);
+                rutaImagenResuelta = $"uploads/products/{matchedFileName}";
+                byte[] imgBytes = await File.ReadAllBytesAsync(matchedByCodePath);
+                await ProductService.SubirImagenAlServidorCloudAsync(matchedFileName, imgBytes);
+            }
 
             decimal costo = ParsearDecimalSeguro(GetCol(colCosto), 0.00m);
             decimal precioVenta = ParsearDecimalSeguro(GetCol(colPrecioVenta), 0.00m);
@@ -1157,6 +1215,10 @@ public class ExcelExportService : IExcelExportService
                 {
                     prod.UnidadMedida = presentacion;
                 }
+                if (!string.IsNullOrWhiteSpace(rutaImagenResuelta))
+                {
+                    prod.ImagenUrl = rutaImagenResuelta;
+                }
                 prod.Estado = true;
                 result.TotalActualizados++;
             }
@@ -1177,6 +1239,7 @@ public class ExcelExportService : IExcelExportService
                     Stock = stock,
                     StockMinimo = stockMinimo > 0 ? stockMinimo : 5,
                     MargenExcepcion = margenExcepcion,
+                    ImagenUrl = rutaImagenResuelta,
                     Estado = true,
                     FechaCreacion = DateTime.Now
                 };
@@ -1186,8 +1249,9 @@ public class ExcelExportService : IExcelExportService
         }
 
         await context.SaveChangesAsync();
+        ProductService.SincronizarCarpetaImagenesLocal();
         result.Exitoso = true;
-        result.Mensaje = $"¡Importación exitosa! {result.TotalProcesados} productos procesados ({result.TotalInsertados} nuevos creados, {result.TotalActualizados} actualizados).";
+        result.Mensaje = $"Importación exitosa: {result.TotalProcesados} productos procesados ({result.TotalInsertados} nuevos creados, {result.TotalActualizados} actualizados).";
         return result;
     }
 
@@ -1200,7 +1264,7 @@ public class ExcelExportService : IExcelExportService
         string[] headers = {
             "#", "Código / SKU", "Nombre del Producto", "Categoría",
             "Costo Compra ($)", "Precio Venta ($)", "Stock Actual", "Stock Mínimo",
-            "Margen Excepción (%)", "Presentación / Empaque"
+            "Margen Excepción (%)", "Presentación / Empaque", "Imagen (Archivo o Ruta)"
         };
 
         for (int i = 0; i < headers.Length; i++)
@@ -1224,6 +1288,7 @@ public class ExcelExportService : IExcelExportService
         ws.Cell(2, 8).Value = 10;
         ws.Cell(2, 9).Value = 0.00m;
         ws.Cell(2, 10).Value = "Unidad";
+        ws.Cell(2, 11).Value = "uploads/products/ART-001.jpg";
 
         // Fila de ejemplo 2: Producto con empaque / oferta (ej. jabón 3x1)
         ws.Cell(3, 1).Value = 2;
@@ -1236,6 +1301,7 @@ public class ExcelExportService : IExcelExportService
         ws.Cell(3, 8).Value = 5;
         ws.Cell(3, 9).Value = 0.00m;
         ws.Cell(3, 10).Value = "3x1";
+        ws.Cell(3, 11).Value = "uploads/products/JAB-002.jpg";
 
         ws.Columns().AdjustToContents();
 

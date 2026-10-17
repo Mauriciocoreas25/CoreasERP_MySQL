@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using CoreasERP.Data;
 using CoreasERP.Services;
+using CoreasERP.Services.ApiClients;
 
 namespace CoreasERP;
 
@@ -24,7 +25,7 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
-        // Servicios de persistencia y configuración MySQL / MariaDB
+        // Servicios de persistencia y configuración Híbrida (MySQL Directo + API REST Cloud)
         builder.Services.AddSingleton<IConnectionConfigService, ConnectionConfigService>();
 
         builder.Services.AddDbContextFactory<AppDbContext>((sp, options) =>
@@ -35,29 +36,48 @@ public static class MauiProgram
             options.UseMySql(connectionString, serverVersion);
         });
 
-        // Servicios de Dominio / Negocio
-        builder.Services.AddSingleton<IAuthService, AuthService>();
-        builder.Services.AddScoped<IProductService, ProductService>();
-        builder.Services.AddScoped<ICategoryService, CategoryService>();
-        builder.Services.AddScoped<ICustomerService, CustomerService>();
-        builder.Services.AddScoped<ICashRegisterService, CashRegisterService>();
-        builder.Services.AddScoped<IPosService, PosService>();
-        builder.Services.AddScoped<IDashboardService, DashboardService>();
+        // Implementaciones Directas MySQL (usadas cuando Modo API está desactivado)
+        builder.Services.AddSingleton<AuthService>();
+        builder.Services.AddScoped<ProductService>();
+        builder.Services.AddScoped<CategoryService>();
+        builder.Services.AddScoped<CustomerService>();
+        builder.Services.AddScoped<CashRegisterService>();
+        builder.Services.AddScoped<PosService>();
+        builder.Services.AddScoped<DashboardService>();
+        builder.Services.AddScoped<UserService>();
+        builder.Services.AddScoped<PurchaseService>();
+        builder.Services.AddScoped<CreditService>();
+        builder.Services.AddScoped<PromotionService>();
+        builder.Services.AddScoped<SettingsService>();
+        builder.Services.AddScoped<PriceChangeService>();
+
+        // Enrutadores Híbridos Inteligentes (cambian en caliente entre MySQL Directo y CoreasERP.Api REST)
+        builder.Services.AddSingleton<IAuthService, HybridAuthService>();
+        builder.Services.AddScoped<IProductService, HybridProductService>();
+        builder.Services.AddScoped<ICategoryService, HybridCategoryService>();
+        builder.Services.AddScoped<ICustomerService, HybridCustomerService>();
+        builder.Services.AddScoped<ICashRegisterService, HybridCashRegisterService>();
+        builder.Services.AddScoped<IPosService, HybridPosService>();
+        builder.Services.AddScoped<IDashboardService, HybridDashboardService>();
+        builder.Services.AddScoped<IUserService, HybridUserService>();
+        builder.Services.AddScoped<IPurchaseService, HybridPurchaseService>();
+        builder.Services.AddScoped<ICreditService, HybridCreditService>();
+        builder.Services.AddScoped<IPromotionService, HybridPromotionService>();
+        builder.Services.AddScoped<ISettingsService, HybridSettingsService>();
+        builder.Services.AddScoped<IPriceChangeService, HybridPriceChangeService>();
+
+        // Impresión, QR y Excel
         builder.Services.AddSingleton<IPrintService, PrintService>();
         builder.Services.AddSingleton<IQrCodeService, QrCodeService>();
-
-        // Servicios para los 11 módulos principales
-        builder.Services.AddScoped<IUserService, UserService>();
-        builder.Services.AddScoped<IPurchaseService, PurchaseService>();
-        builder.Services.AddScoped<ICreditService, CreditService>();
-        builder.Services.AddScoped<IPromotionService, PromotionService>();
-        builder.Services.AddScoped<ISettingsService, SettingsService>();
-        builder.Services.AddScoped<IPriceChangeService, PriceChangeService>();
         builder.Services.AddScoped<IExcelExportService, ExcelExportService>();
+
         // Facturación Electrónica (DTE El Salvador - FelSv)
         builder.Services.AddHttpClient();
         builder.Services.AddScoped<CoreasERP.Services.Dte.IDteJsonBuilderService, CoreasERP.Services.Dte.DteJsonBuilderService>();
         builder.Services.AddScoped<CoreasERP.Services.Dte.IFelSvApiService, CoreasERP.Services.Dte.FelSvApiService>();
+
+        // Crear y sincronizar carpeta fija C:\CoreasERP\uploads\products al iniciar el ejecutable
+        ProductService.SincronizarCarpetaImagenesLocal();
 
         return builder.Build();
     }

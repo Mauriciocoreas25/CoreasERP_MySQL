@@ -4,43 +4,88 @@
 @if (IsOpen)
 {
     <div class="modal-backdrop-custom" @onclick="Close">
-        <div class="modal-content-custom" @onclick:stopPropagation="true">
+        <div class="modal-content-custom" style="max-width: 560px;" @onclick:stopPropagation="true">
             <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light">
                 <div class="d-flex align-items-center gap-2">
-                    <h6 class="mb-0 fw-bold">Configuración de Conexión MySQL / MariaDB</h6>
+                    <h6 class="mb-0 fw-bold">Configuración de Conexión Híbrida (MySQL / Cloud API)</h6>
                 </div>
                 <button type="button" class="btn-close" @onclick="Close"></button>
             </div>
 
             <div class="p-4">
-                <p class="small text-muted mb-3">
-                    Configura los parámetros para conectarte a tu servidor MySQL o MariaDB (Laragon, XAMPP, WAMP o servidor en red).
-                </p>
-
+                <!-- Selector de Modo de Conexión -->
                 <div class="mb-3">
-                    <label class="form-label small fw-semibold">Cadena de Conexión (Connection String)</label>
-                    <textarea class="form-control font-monospace small" rows="3" @bind="ConnectionString"></textarea>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label small text-muted">Atajos Rápidos MySQL:</label>
-                    <div class="d-flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLaragonXampp">
-                            Laragon / XAMPP (root sin clave)
+                    <label class="form-label small fw-semibold">Modo de Operación del ERP:</label>
+                    <div class="btn-group w-100" role="group">
+                        <button type="button"
+                                class="btn btn-sm @(!UseApiMode ? "btn-success fw-semibold" : "btn-outline-secondary")"
+                                style="@(!UseApiMode ? "background-color: #15803d; border-color: #15803d;" : "")"
+                                @onclick="() => { UseApiMode = false; TestMessage = null; }">
+                            🗄️ Conexión Directa MySQL (Local / Nube)
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetMySqlRoot">
-                            MySQL Server (root / admin)
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetRedLocal">
-                            Servidor en Red LAN (192.168.1.x)
+                        <button type="button"
+                                class="btn btn-sm @(UseApiMode ? "btn-success fw-semibold" : "btn-outline-secondary")"
+                                style="@(UseApiMode ? "background-color: #15803d; border-color: #15803d;" : "")"
+                                @onclick="() => { UseApiMode = true; TestMessage = null; }">
+                            ☁️ Vía API REST Intermediaria (Nube)
                         </button>
                     </div>
                 </div>
 
+                @if (!UseApiMode)
+                {
+                    <p class="small text-muted mb-2">
+                        Conecta directamente a MySQL local (XAMPP/Laragon) o MySQL en la nube (Aiven, Filess.io, TiDB, Railway). Acepta formato ADO.NET o URI <code>mysql://...</code>
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Cadena de Conexión o URI MySQL:</label>
+                        <textarea class="form-control font-monospace small" rows="3" @bind="ConnectionString"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Atajos Rápidos MySQL:</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLaragonXampp">
+                                Laragon / XAMPP (3306)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetCloudSslTemplate">
+                                MySQL Nube SSL (Aiven / TiDB)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetRedLocal">
+                                Red LAN (192.168.1.x)
+                            </button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p class="small text-muted mb-2">
+                        El ERP se comunicará por HTTP con tu servidor <strong>CoreasERP.Api</strong> (compartido con la futura App Móvil).
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">URL Base de CoreasERP API:</label>
+                        <input type="text" class="form-control font-monospace small" @bind="ApiBaseUrl" placeholder="http://coreaserp.runasp.net" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Atajos Rápidos API:</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick='() => ApiBaseUrl = "http://coreaserp.runasp.net"'>
+                                MonsterASP Cloud (coreaserp.runasp.net)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick='() => ApiBaseUrl = "http://localhost:5100"'>
+                                API Local (localhost:5100)
+                            </button>
+                        </div>
+                    </div>
+                }
+
                 @if (!string.IsNullOrEmpty(TestMessage))
                 {
                     <div class="alert @(TestSuccess ? "alert-success" : "alert-danger") py-2 small mb-0">
-                        @(TestSuccess ? "Conexión exitosa: " : "Error: ") @TestMessage
+                        @(TestSuccess ? "Éxito: " : "Error: ") @TestMessage
                     </div>
                 }
             </div>
@@ -54,7 +99,7 @@
                     }
                     else
                     {
-                        <span>Probar Conexión</span>
+                        <span>@(UseApiMode ? "Probar API" : "Probar Conexión MySQL")</span>
                     }
                 </button>
 
@@ -72,7 +117,9 @@
     [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
     [Parameter] public EventCallback OnSaved { get; set; }
 
+    private bool UseApiMode;
     private string ConnectionString = "";
+    private string ApiBaseUrl = "";
     private string? TestMessage;
     private bool TestSuccess;
     private bool isTesting;
@@ -81,7 +128,9 @@
     {
         if (IsOpen)
         {
+            UseApiMode = ConnectionConfig.IsApiModeEnabled();
             ConnectionString = ConnectionConfig.GetConnectionString();
+            ApiBaseUrl = ConnectionConfig.GetApiBaseUrl();
             TestMessage = null;
         }
     }
@@ -91,9 +140,10 @@
         ConnectionString = "Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
-    private void SetMySqlRoot()
+    private void SetCloudSslTemplate()
     {
-        ConnectionString = "Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=root;AllowUserVariables=True;CharSet=utf8mb4;";
+        ConnectionString = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING")
+            ?? "Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;SslMode=Preferred;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
     private void SetRedLocal()
@@ -107,7 +157,10 @@
         TestMessage = null;
         StateHasChanged();
 
-        var result = await ConnectionConfig.TestConnectionAsync(ConnectionString);
+        var result = UseApiMode
+            ? await ConnectionConfig.TestApiConnectionAsync(ApiBaseUrl)
+            : await ConnectionConfig.TestConnectionAsync(ConnectionString);
+
         TestSuccess = result.Success;
         TestMessage = result.Message;
         isTesting = false;
@@ -115,7 +168,9 @@
 
     private async Task Save()
     {
+        ConnectionConfig.SetApiModeEnabled(UseApiMode);
         ConnectionConfig.SetConnectionString(ConnectionString);
+        ConnectionConfig.SetApiBaseUrl(ApiBaseUrl);
         await Close();
         await OnSaved.InvokeAsync();
     }

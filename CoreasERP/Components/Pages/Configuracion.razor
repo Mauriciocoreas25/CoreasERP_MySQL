@@ -103,36 +103,80 @@
         </div>
     </div>
 
-    <!-- 2. Parámetros de Conexión MySQL / MariaDB -->
+    <!-- 2. Parámetros de Conexión Híbrida (MySQL / API Cloud) -->
     <div class="col-12 col-lg-5">
         <div class="card border-0 shadow-sm rounded-3 h-100">
-            <div class="card-header bg-white py-3 border-bottom d-flex align-items-center gap-2">
-                <h6 class="mb-0 fw-bold">Servidor MySQL / MariaDB</h6>
+            <div class="card-header bg-white py-3 border-bottom d-flex align-items-center justify-content-between gap-2">
+                <h6 class="mb-0 fw-bold">Conexión Híbrida (MySQL / API Cloud)</h6>
+                <span class="badge @(UseApiMode ? "bg-primary" : "bg-success")">
+                    @(UseApiMode ? "Modo API REST" : "Modo MySQL Directo")
+                </span>
             </div>
             <div class="card-body p-4">
-                <p class="small text-muted mb-3">
-                    Configuración de conexión local (XAMPP, Laragon, MySQL Server) o en red LAN a tu motor MySQL / MariaDB.
-                </p>
-
-                <div class="mb-3">
-                    <label class="form-label small fw-semibold">Cadena de Conexión Activa:</label>
-                    <textarea class="form-control font-monospace small" rows="4" @bind="ConnectionString"></textarea>
+                <div class="btn-group w-100 mb-3" role="group">
+                    <button type="button"
+                            class="btn btn-sm @(!UseApiMode ? "btn-success fw-semibold" : "btn-outline-secondary")"
+                            style="@(!UseApiMode ? "background-color: #15803d; border-color: #15803d;" : "")"
+                            @onclick="() => { UseApiMode = false; SqlTestMessage = null; }">
+                        🗄️ MySQL Directo
+                    </button>
+                    <button type="button"
+                            class="btn btn-sm @(UseApiMode ? "btn-success fw-semibold" : "btn-outline-secondary")"
+                            style="@(UseApiMode ? "background-color: #15803d; border-color: #15803d;" : "")"
+                            @onclick="() => { UseApiMode = true; SqlTestMessage = null; }">
+                        ☁️ API REST (Nube)
+                    </button>
                 </div>
 
-                <div class="mb-3">
-                    <label class="form-label small text-muted">Instancias Comunes:</label>
-                    <div class="d-flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetSqlExpress">
-                            Laragon / XAMPP (3306)
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalDb">
-                            MySQL Root (con clave)
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalhost">
-                            Servidor Red LAN
-                        </button>
+                @if (!UseApiMode)
+                {
+                    <p class="small text-muted mb-2">
+                        Conexión local (XAMPP/Laragon) o nube (Aiven, Filess.io, TiDB). Acepta cadena ADO.NET o URI <code>mysql://...</code>
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Cadena de Conexión MySQL:</label>
+                        <textarea class="form-control font-monospace small" rows="3" @bind="ConnectionString"></textarea>
                     </div>
-                </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Atajos MySQL:</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetSqlExpress">
+                                Laragon / XAMPP (3306)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalDb">
+                                Nube SSL (Aiven / TiDB)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="SetLocalhost">
+                                Servidor Red LAN
+                            </button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <p class="small text-muted mb-2">
+                        Conecta el ERP a través de <strong>CoreasERP.Api</strong> para compartir la base de datos en la nube con la App Móvil.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">URL de CoreasERP API:</label>
+                        <input type="text" class="form-control font-monospace small" @bind="ApiBaseUrl" placeholder="http://coreaserp.runasp.net" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small text-muted">Atajos API:</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick='() => ApiBaseUrl = "http://coreaserp.runasp.net"'>
+                                MonsterASP Cloud
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick='() => ApiBaseUrl = "http://localhost:5100"'>
+                                API Local (5100)
+                            </button>
+                        </div>
+                    </div>
+                }
 
                 @if (!string.IsNullOrEmpty(SqlTestMessage))
                 {
@@ -150,7 +194,7 @@
                         }
                         else
                         {
-                            <span>Probar Conexión</span>
+                            <span>@(UseApiMode ? "Probar API" : "Probar Conexión")</span>
                         }
                     </button>
                     <button class="btn btn-success btn-sm px-3 fw-semibold" style="background-color: #15803d; border-color: #15803d;" @onclick="GuardarSql">
@@ -444,7 +488,9 @@
 
 @code {
     private ConfiguracionNegocio Config = new();
+    private bool UseApiMode;
     private string ConnectionString = "";
+    private string ApiBaseUrl = "";
     private bool isLoadingConfig = true;
     private bool isSavingConfig;
 
@@ -462,7 +508,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        UseApiMode = ConnectionConfig.IsApiModeEnabled();
         ConnectionString = ConnectionConfig.GetConnectionString();
+        ApiBaseUrl = ConnectionConfig.GetApiBaseUrl();
         CargarImpresoras();
         await CargarConfiguracion();
     }
@@ -533,12 +581,13 @@
 
     private void SetLocalDb()
     {
-        ConnectionString = @"Server=localhost;Port=3306;Database=Coreas_ERP;User=root;Password=root;AllowUserVariables=True;CharSet=utf8mb4;";
+        ConnectionString = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING")
+            ?? @"Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;SslMode=Preferred;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
     private void SetLocalhost()
     {
-        ConnectionString = @"Server=192.168.1.100;Port=3306;Database=Coreas_ERP;User=coreas_admin;Password=TuClaveSegura123;AllowUserVariables=True;CharSet=utf8mb4;";
+        ConnectionString = @"Server=192.168.1.100;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;";
     }
 
     private async Task ProbarConexion()
@@ -546,7 +595,10 @@
         isTestingSql = true;
         SqlTestMessage = null;
 
-        var result = await ConnectionConfig.TestConnectionAsync(ConnectionString);
+        var result = UseApiMode
+            ? await ConnectionConfig.TestApiConnectionAsync(ApiBaseUrl)
+            : await ConnectionConfig.TestConnectionAsync(ConnectionString);
+
         isTestingSql = false;
         SqlTestSuccess = result.Success;
         SqlTestMessage = result.Message;
@@ -554,9 +606,13 @@
 
     private void GuardarSql()
     {
+        ConnectionConfig.SetApiModeEnabled(UseApiMode);
         ConnectionConfig.SetConnectionString(ConnectionString);
+        ConnectionConfig.SetApiBaseUrl(ApiBaseUrl);
         isSuccess = true;
-        FeedbackMessage = "¡Cadena de conexión guardada exitosamente!";
+        FeedbackMessage = UseApiMode
+            ? $"¡Modo API REST activado ({ApiBaseUrl}) exitosamente!"
+            : "¡Modo MySQL Directo guardado exitosamente!";
     }
 
     private bool isTestingFelSv;
