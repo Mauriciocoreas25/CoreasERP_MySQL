@@ -31,11 +31,12 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader());
 });
 
-// Resolver cadena de conexión MySQL (soporta variable de entorno MYSQL_CONNECTION_STRING, DATABASE_URL o appsettings.json)
-string rawConn = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING")
-    ?? Environment.GetEnvironmentVariable("DATABASE_URL")
-    ?? builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;";
+// Resolver cadena de conexión MySQL (soporta archivo .env, variables DB_HOST/DB_USER/DB_PASSWORD, MYSQL_CONNECTION_STRING o appsettings.json)
+ConnectionConfigService.EnsureDotEnvLoaded();
+string envConn = ConnectionConfigService.ResolveEnvConnectionString();
+string rawConn = (!envConn.Contains("Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;"))
+    ? envConn
+    : (builder.Configuration.GetConnectionString("DefaultConnection") ?? envConn);
 
 string connectionString = NormalizeMySqlConnectionString(rawConn);
 

@@ -22,14 +22,107 @@ public class ConnectionConfigService : IConnectionConfigService
     private const string PrefKey = "MYSQL_CONNECTION_STRING";
     private const string ApiModeKey = "USE_API_MODE";
     private const string ApiUrlKey = "API_BASE_URL";
+    private static bool _envLoaded;
 
-    private static string DefaultConnection =>
-        Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING")
-        ?? "Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;";
-    private const string DefaultApiUrl = "http://coreaserp.runasp.net";
+    public ConnectionConfigService()
+    {
+        EnsureDotEnvLoaded();
+    }
+
+    public static void EnsureDotEnvLoaded()
+    {
+        if (_envLoaded) return;
+        _envLoaded = true;
+
+        try
+        {
+            var candidatePaths = new List<string>
+            {
+                @"C:\CoreasERP\.env",
+                Path.Combine(AppContext.BaseDirectory, ".env"),
+                Path.Combine(Directory.GetCurrentDirectory(), ".env")
+            };
+
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            for (int i = 0; i < 6 && dir != null; i++)
+            {
+                candidatePaths.Add(Path.Combine(dir.FullName, ".env"));
+                dir = dir.Parent;
+            }
+
+            foreach (var path in candidatePaths.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!File.Exists(path)) continue;
+
+                foreach (var rawLine in File.ReadAllLines(path))
+                {
+                    var line = rawLine.Trim();
+                    if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#")) continue;
+
+                    int idx = line.IndexOf('=');
+                    if (idx <= 0) continue;
+
+                    string key = line[..idx].Trim();
+                    string val = line[(idx + 1)..].Trim().Trim('"', '\'');
+
+                    if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(val))
+                    {
+                        Environment.SetEnvironmentVariable(key, val);
+                    }
+                }
+                break;
+            }
+        }
+        catch
+        {
+            // Ignorar errores de lectura de .env
+        }
+    }
+
+    public static string ResolveEnvConnectionString()
+    {
+        EnsureDotEnvLoaded();
+
+        var directConn = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING")
+            ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+        if (!string.IsNullOrWhiteSpace(directConn))
+            return directConn;
+
+        var host = Environment.GetEnvironmentVariable("DB_HOST");
+        if (!string.IsNullOrWhiteSpace(host))
+        {
+            var port = Environment.GetEnvironmentVariable("DB_PORT") ?? "3306";
+            var db = Environment.GetEnvironmentVariable("DB_NAME") ?? "Coreas_ERP";
+            var user = Environment.GetEnvironmentVariable("DB_USER") ?? "root";
+            var pass = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "";
+            return $"Server={host};Port={port};Database={db};User={user};Password={pass};SslMode=Preferred;AllowUserVariables=True;CharSet=utf8mb4;";
+        }
+
+        return "Server=127.0.0.1;Port=3306;Database=Coreas_ERP;User=root;Password=;AllowUserVariables=True;CharSet=utf8mb4;";
+    }
+
+    private static string DefaultConnection => ResolveEnvConnectionString();
+
+    private static string DefaultApiUrl
+    {
+        get
+        {
+            EnsureDotEnvLoaded();
+            var envUrl = Environment.GetEnvironmentVariable("API_BASE_URL");
+            return !string.IsNullOrWhiteSpace(envUrl) ? envUrl.Trim().TrimEnd('/') : "http://coreaserp.runasp.net";
+        }
+    }
 
     public string GetConnectionString()
     {
+        EnsureDotEnvLoaded();
+        var envHost = Environment.GetEnvironmentVariable("DB_HOST");
+        var envDirect = Environment.GetEnvironmentVariable("MYSQL_CONNECTION_STRING");
+        if (!string.IsNullOrWhiteSpace(envHost) || !string.IsNullOrWhiteSpace(envDirect))
+        {
+            return NormalizeMySqlConnectionString(DefaultConnection);
+        }
+
         var conn = Preferences.Default.Get(PrefKey, DefaultConnection);
         if (string.IsNullOrWhiteSpace(conn) ||
             conn.Contains("SQLEXPRESS", StringComparison.OrdinalIgnoreCase) ||
@@ -50,6 +143,12 @@ public class ConnectionConfigService : IConnectionConfigService
 
     public bool IsApiModeEnabled()
     {
+        EnsureDotEnvLoaded();
+        var envMode = Environment.GetEnvironmentVariable("USE_API_MODE");
+        if (!string.IsNullOrWhiteSpace(envMode) && bool.TryParse(envMode, out bool parsedMode))
+        {
+            return parsedMode;
+        }
         return Preferences.Default.Get(ApiModeKey, true);
     }
 
@@ -60,6 +159,13 @@ public class ConnectionConfigService : IConnectionConfigService
 
     public string GetApiBaseUrl()
     {
+        EnsureDotEnvLoaded();
+        var envUrl = Environment.GetEnvironmentVariable("API_BASE_URL");
+        if (!string.IsNullOrWhiteSpace(envUrl))
+        {
+            return envUrl.Trim().TrimEnd('/');
+        }
+
         var url = Preferences.Default.Get(ApiUrlKey, DefaultApiUrl);
         if (string.IsNullOrWhiteSpace(url) || url.Contains("localhost:5100", StringComparison.OrdinalIgnoreCase))
         {

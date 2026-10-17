@@ -45,3 +45,11 @@ publish/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Variables de entorno y credenciales privadas (NUNCA subir a GitHub)
+.env
+.env.local
+.env.production
+*.env
+!.env.example
+
