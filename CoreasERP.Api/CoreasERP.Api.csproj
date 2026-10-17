@@ -21,6 +21,7 @@
     <Compile Include="..\CoreasERP\Data\**\*.cs" LinkBase="Data" />
     <Compile Include="..\CoreasERP\Services\Dte\**\*.cs" LinkBase="Services\Dte" />
     <Compile Include="..\CoreasERP\Services\AuthService.cs" Link="Services\AuthService.cs" />
+    <Compile Include="..\CoreasERP\Services\ConnectionConfigService.cs" Link="Services\ConnectionConfigService.cs" />
     <Compile Include="..\CoreasERP\Services\CashRegisterService.cs" Link="Services\CashRegisterService.cs" />
     <Compile Include="..\CoreasERP\Services\CategoryService.cs" Link="Services\CategoryService.cs" />
     <Compile Include="..\CoreasERP\Services\CreditService.cs" Link="Services\CreditService.cs" />

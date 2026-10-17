@@ -187,9 +187,9 @@ public class DteJsonBuilderService : IDteJsonBuilderService
                 TipoItem = 1,
                 Codigo = d.Producto?.Codigo ?? $"P-{d.IdProducto}",
                 Descripcion = d.Producto?.Nombre ?? "Producto",
-                Cantidad = d.Cantidad,
+                Cantidad = Math.Round(d.Cantidad, 3, MidpointRounding.AwayFromZero),
                 UniMedida = MapearUniMedida(d.Producto?.UnidadMedida),
-                PrecioUni = d.Precio
+                PrecioUni = Math.Round(d.Precio, 3, MidpointRounding.AwayFromZero)
             }).ToList(),
             Resumen = new DteResumen
             {
@@ -245,9 +245,9 @@ public class DteJsonBuilderService : IDteJsonBuilderService
                 TipoItem = 1,
                 Codigo = d.Producto?.Codigo ?? $"COD-{d.IdProducto}",
                 Descripcion = d.Producto?.Nombre ?? "Producto",
-                Cantidad = d.Cantidad,
+                Cantidad = Math.Round(d.Cantidad, 3, MidpointRounding.AwayFromZero),
                 UniMedida = MapearUniMedida(d.Producto?.UnidadMedida),
-                PrecioUni = d.Precio
+                PrecioUni = Math.Round(d.Precio, 3, MidpointRounding.AwayFromZero)
             }).ToList(),
             Resumen = new DteResumen
             {

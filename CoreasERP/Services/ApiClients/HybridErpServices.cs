@@ -378,47 +378,83 @@ public class HybridPosService : IPosService
         if (!_config.IsApiModeEnabled())
             return await _direct.RegistrarVentaAsync(idCliente, idUsuario, tipoComprobante, metodoPago, pagoCon, items);
 
-        using var http = ApiHttpHelper.CreateClient(_config);
-        var resp = await http.PostAsJsonAsync("api/ventas", new RegistrarVentaRequestDto
+        try
         {
-            IdCliente = idCliente,
-            IdUsuario = idUsuario,
-            TipoComprobante = tipoComprobante,
-            MetodoPago = metodoPago,
-            PagoCon = pagoCon,
-            Items = items
-        });
-        var res = await resp.Content.ReadFromJsonAsync<ApiResultDto<Venta>>(ApiHttpHelper.JsonOptions);
-        return (res?.Success ?? false, res?.Message ?? "Error al registrar venta vía API.", res?.Data);
+            using var http = ApiHttpHelper.CreateClient(_config);
+            var resp = await http.PostAsJsonAsync("api/ventas", new RegistrarVentaRequestDto
+            {
+                IdCliente = idCliente,
+                IdUsuario = idUsuario,
+                TipoComprobante = tipoComprobante,
+                MetodoPago = metodoPago,
+                PagoCon = pagoCon,
+                Items = items
+            });
+            var res = await resp.Content.ReadFromJsonAsync<ApiResultDto<Venta>>(ApiHttpHelper.JsonOptions);
+            if (res != null && !res.Success && (res.Message?.Contains("ExecutionStrategy", StringComparison.OrdinalIgnoreCase) ?? false))
+            {
+                return await _direct.RegistrarVentaAsync(idCliente, idUsuario, tipoComprobante, metodoPago, pagoCon, items);
+            }
+            return (res?.Success ?? false, res?.Message ?? "Error al registrar venta vía API.", res?.Data);
+        }
+        catch
+        {
+            return await _direct.RegistrarVentaAsync(idCliente, idUsuario, tipoComprobante, metodoPago, pagoCon, items);
+        }
     }
 
     public async Task<(bool Success, string Message)> AnularVentaAsync(int idVenta)
     {
         if (!_config.IsApiModeEnabled()) return await _direct.AnularVentaAsync(idVenta);
-        using var http = ApiHttpHelper.CreateClient(_config);
-        var resp = await http.PostAsync($"api/ventas/{idVenta}/anular", null);
-        var res = await resp.Content.ReadFromJsonAsync<ApiResultDto>(ApiHttpHelper.JsonOptions);
-        return (res?.Success ?? false, res?.Message ?? "Error al anular venta vía API.");
+        try
+        {
+            using var http = ApiHttpHelper.CreateClient(_config);
+            var resp = await http.PostAsync($"api/ventas/{idVenta}/anular", null);
+            var res = await resp.Content.ReadFromJsonAsync<ApiResultDto>(ApiHttpHelper.JsonOptions);
+            if (res != null && !res.Success && (res.Message?.Contains("ExecutionStrategy", StringComparison.OrdinalIgnoreCase) ?? false))
+            {
+                return await _direct.AnularVentaAsync(idVenta);
+            }
+            return (res?.Success ?? false, res?.Message ?? "Error al anular venta vía API.");
+        }
+        catch
+        {
+            return await _direct.AnularVentaAsync(idVenta);
+        }
     }
 
     public async Task<List<Venta>> GetVentasAsync(DateTime? fecha = null, string? busqueda = null)
     {
         if (!_config.IsApiModeEnabled()) return await _direct.GetVentasAsync(fecha, busqueda);
-        using var http = ApiHttpHelper.CreateClient(_config);
-        var q = new List<string>();
-        if (fecha.HasValue) q.Add($"fecha={fecha.Value:yyyy-MM-dd}");
-        if (!string.IsNullOrWhiteSpace(busqueda)) q.Add($"busqueda={Uri.EscapeDataString(busqueda)}");
-        string url = "api/ventas" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
-        return await http.GetFromJsonAsync<List<Venta>>(url, ApiHttpHelper.JsonOptions) ?? new();
+        try
+        {
+            using var http = ApiHttpHelper.CreateClient(_config);
+            var q = new List<string>();
+            if (fecha.HasValue) q.Add($"fecha={fecha.Value:yyyy-MM-dd}");
+            if (!string.IsNullOrWhiteSpace(busqueda)) q.Add($"busqueda={Uri.EscapeDataString(busqueda)}");
+            string url = "api/ventas" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
+            return await http.GetFromJsonAsync<List<Venta>>(url, ApiHttpHelper.JsonOptions) ?? new();
+        }
+        catch
+        {
+            return await _direct.GetVentasAsync(fecha, busqueda);
+        }
     }
 
     public async Task<Venta?> GetVentaByIdAsync(int idVenta)
     {
         if (!_config.IsApiModeEnabled()) return await _direct.GetVentaByIdAsync(idVenta);
-        using var http = ApiHttpHelper.CreateClient(_config);
-        var resp = await http.GetAsync($"api/ventas/{idVenta}");
-        if (!resp.IsSuccessStatusCode) return null;
-        return await resp.Content.ReadFromJsonAsync<Venta>(ApiHttpHelper.JsonOptions);
+        try
+        {
+            using var http = ApiHttpHelper.CreateClient(_config);
+            var resp = await http.GetAsync($"api/ventas/{idVenta}");
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadFromJsonAsync<Venta>(ApiHttpHelper.JsonOptions);
+        }
+        catch
+        {
+            return await _direct.GetVentaByIdAsync(idVenta);
+        }
     }
 
     public async Task<(bool Success, string Message, decimal TotalCostoMerma, List<Merma> Mermas)> RegistrarMermaLoteAsync(List<CartItemDto> items, string motivo, int idSupervisor, int idCajero, string? notaAdicional = null)
@@ -426,17 +462,28 @@ public class HybridPosService : IPosService
         if (!_config.IsApiModeEnabled())
             return await _direct.RegistrarMermaLoteAsync(items, motivo, idSupervisor, idCajero, notaAdicional);
 
-        using var http = ApiHttpHelper.CreateClient(_config);
-        var resp = await http.PostAsJsonAsync("api/ventas/mermas-lote", new RegistrarMermaLoteRequestDto
+        try
         {
-            Items = items,
-            Motivo = motivo,
-            IdSupervisor = idSupervisor,
-            IdCajero = idCajero,
-            NotaAdicional = notaAdicional
-        });
-        var res = await resp.Content.ReadFromJsonAsync<MermaLoteResultDto>(ApiHttpHelper.JsonOptions);
-        return (res?.Success ?? false, res?.Message ?? "Error al registrar merma vía API.", res?.TotalCostoMerma ?? 0m, res?.Mermas ?? new());
+            using var http = ApiHttpHelper.CreateClient(_config);
+            var resp = await http.PostAsJsonAsync("api/ventas/mermas-lote", new RegistrarMermaLoteRequestDto
+            {
+                Items = items,
+                Motivo = motivo,
+                IdSupervisor = idSupervisor,
+                IdCajero = idCajero,
+                NotaAdicional = notaAdicional
+            });
+            var res = await resp.Content.ReadFromJsonAsync<MermaLoteResultDto>(ApiHttpHelper.JsonOptions);
+            if (res != null && !res.Success && (res.Message?.Contains("ExecutionStrategy", StringComparison.OrdinalIgnoreCase) ?? false))
+            {
+                return await _direct.RegistrarMermaLoteAsync(items, motivo, idSupervisor, idCajero, notaAdicional);
+            }
+            return (res?.Success ?? false, res?.Message ?? "Error al registrar merma vía API.", res?.TotalCostoMerma ?? 0m, res?.Mermas ?? new());
+        }
+        catch
+        {
+            return await _direct.RegistrarMermaLoteAsync(items, motivo, idSupervisor, idCajero, notaAdicional);
+        }
     }
 }
 
@@ -589,26 +636,48 @@ public class HybridPurchaseService : IPurchaseService
     public async Task<(bool Success, string Message, Compra? Compra)> RegistrarCompraAsync(int idProveedor, int idUsuario, string numFactura, string? observaciones, List<PurchaseItemDto> items)
     {
         if (!_config.IsApiModeEnabled()) return await _direct.RegistrarCompraAsync(idProveedor, idUsuario, numFactura, observaciones, items);
-        using var http = ApiHttpHelper.CreateClient(_config);
-        var resp = await http.PostAsJsonAsync("api/compras", new RegistrarCompraRequestDto
+        try
         {
-            IdProveedor = idProveedor,
-            IdUsuario = idUsuario,
-            NumFactura = numFactura,
-            Observaciones = observaciones,
-            Items = items
-        });
-        var res = await resp.Content.ReadFromJsonAsync<ApiResultDto<Compra>>(ApiHttpHelper.JsonOptions);
-        return (res?.Success ?? false, res?.Message ?? "Error al registrar compra vía API.", res?.Data);
+            using var http = ApiHttpHelper.CreateClient(_config);
+            var resp = await http.PostAsJsonAsync("api/compras", new RegistrarCompraRequestDto
+            {
+                IdProveedor = idProveedor,
+                IdUsuario = idUsuario,
+                NumFactura = numFactura,
+                Observaciones = observaciones,
+                Items = items
+            });
+            var res = await resp.Content.ReadFromJsonAsync<ApiResultDto<Compra>>(ApiHttpHelper.JsonOptions);
+            if (res != null && !res.Success && (res.Message?.Contains("ExecutionStrategy", StringComparison.OrdinalIgnoreCase) ?? false))
+            {
+                return await _direct.RegistrarCompraAsync(idProveedor, idUsuario, numFactura, observaciones, items);
+            }
+            return (res?.Success ?? false, res?.Message ?? "Error al registrar compra vía API.", res?.Data);
+        }
+        catch
+        {
+            return await _direct.RegistrarCompraAsync(idProveedor, idUsuario, numFactura, observaciones, items);
+        }
     }
 
     public async Task<(bool Success, string Message)> AnularCompraAsync(int idCompra)
     {
         if (!_config.IsApiModeEnabled()) return await _direct.AnularCompraAsync(idCompra);
-        using var http = ApiHttpHelper.CreateClient(_config);
-        var resp = await http.PostAsync($"api/compras/{idCompra}/anular", null);
-        var res = await resp.Content.ReadFromJsonAsync<ApiResultDto>(ApiHttpHelper.JsonOptions);
-        return (res?.Success ?? false, res?.Message ?? "Error al anular compra vía API.");
+        try
+        {
+            using var http = ApiHttpHelper.CreateClient(_config);
+            var resp = await http.PostAsync($"api/compras/{idCompra}/anular", null);
+            var res = await resp.Content.ReadFromJsonAsync<ApiResultDto>(ApiHttpHelper.JsonOptions);
+            if (res != null && !res.Success && (res.Message?.Contains("ExecutionStrategy", StringComparison.OrdinalIgnoreCase) ?? false))
+            {
+                return await _direct.AnularCompraAsync(idCompra);
+            }
+            return (res?.Success ?? false, res?.Message ?? "Error al anular compra vía API.");
+        }
+        catch
+        {
+            return await _direct.AnularCompraAsync(idCompra);
+        }
     }
 }
 
@@ -646,17 +715,28 @@ public class HybridCreditService : ICreditService
     public async Task<(bool Success, string Message, Abono? Abono)> RegistrarAbonoAsync(int idCuentaCobrar, int idUsuario, decimal monto, string metodoPago, string? notas)
     {
         if (!_config.IsApiModeEnabled()) return await _direct.RegistrarAbonoAsync(idCuentaCobrar, idUsuario, monto, metodoPago, notas);
-        using var http = ApiHttpHelper.CreateClient(_config);
-        var resp = await http.PostAsJsonAsync("api/creditos/abonos", new RegistrarAbonoRequestDto
+        try
         {
-            IdCuentaCobrar = idCuentaCobrar,
-            IdUsuario = idUsuario,
-            Monto = monto,
-            MetodoPago = metodoPago,
-            Notas = notas
-        });
-        var res = await resp.Content.ReadFromJsonAsync<ApiResultDto<Abono>>(ApiHttpHelper.JsonOptions);
-        return (res?.Success ?? false, res?.Message ?? "Error al registrar abono vía API.", res?.Data);
+            using var http = ApiHttpHelper.CreateClient(_config);
+            var resp = await http.PostAsJsonAsync("api/creditos/abonos", new RegistrarAbonoRequestDto
+            {
+                IdCuentaCobrar = idCuentaCobrar,
+                IdUsuario = idUsuario,
+                Monto = monto,
+                MetodoPago = metodoPago,
+                Notas = notas
+            });
+            var res = await resp.Content.ReadFromJsonAsync<ApiResultDto<Abono>>(ApiHttpHelper.JsonOptions);
+            if (res != null && !res.Success && (res.Message?.Contains("ExecutionStrategy", StringComparison.OrdinalIgnoreCase) ?? false))
+            {
+                return await _direct.RegistrarAbonoAsync(idCuentaCobrar, idUsuario, monto, metodoPago, notas);
+            }
+            return (res?.Success ?? false, res?.Message ?? "Error al registrar abono vía API.", res?.Data);
+        }
+        catch
+        {
+            return await _direct.RegistrarAbonoAsync(idCuentaCobrar, idUsuario, monto, metodoPago, notas);
+        }
     }
 }
 

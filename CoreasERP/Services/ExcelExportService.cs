@@ -1124,18 +1124,18 @@ public class ExcelExportService : IExcelExportService
                 await ProductService.SubirImagenAlServidorCloudAsync(matchedFileName, imgBytes);
             }
 
-            decimal costo = ParsearDecimalSeguro(GetCol(colCosto), 0.00m);
-            decimal precioVenta = ParsearDecimalSeguro(GetCol(colPrecioVenta), 0.00m);
+            decimal costo = Math.Round(ParsearDecimalSeguro(GetCol(colCosto), 0.000m), 3, MidpointRounding.AwayFromZero);
+            decimal precioVenta = Math.Round(ParsearDecimalSeguro(GetCol(colPrecioVenta), 0.000m), 3, MidpointRounding.AwayFromZero);
             decimal? precioGranel = null;
             if (colPrecioGranel >= 0)
             {
-                decimal pg = ParsearDecimalSeguro(GetCol(colPrecioGranel), 0.00m);
+                decimal pg = Math.Round(ParsearDecimalSeguro(GetCol(colPrecioGranel), 0.000m), 3, MidpointRounding.AwayFromZero);
                 if (pg > 0) precioGranel = pg;
             }
 
-            decimal stock = ParsearDecimalSeguro(GetCol(colStock), 0m);
-            decimal stockMinimo = ParsearDecimalSeguro(GetCol(colStockMinimo), 5m);
-            decimal margenExcepcion = ParsearDecimalSeguro(GetCol(colMargenExcepcion), 0.00m);
+            decimal stock = Math.Round(ParsearDecimalSeguro(GetCol(colStock), 0m), 3, MidpointRounding.AwayFromZero);
+            decimal stockMinimo = Math.Round(ParsearDecimalSeguro(GetCol(colStockMinimo), 5m), 3, MidpointRounding.AwayFromZero);
+            decimal margenExcepcion = Math.Round(ParsearDecimalSeguro(GetCol(colMargenExcepcion), 0.000m), 3, MidpointRounding.AwayFromZero);
 
             result.TotalProcesados++;
 
@@ -1155,34 +1155,34 @@ public class ExcelExportService : IExcelExportService
                 dictCategorias[keyCat] = cat;
             }
 
-            decimal cantEmpaque = 1.00m;
+            decimal cantEmpaque = 1.000m;
             if (decimal.TryParse(presentacion, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var pNum) && pNum > 1)
             {
-                cantEmpaque = pNum;
+                cantEmpaque = Math.Round(pNum, 3, MidpointRounding.AwayFromZero);
             }
             else
             {
                 var match = System.Text.RegularExpressions.Regex.Match(nombre, @"\b(\d+)\s*[xX*]\s*(\d+)\b");
                 if (match.Success && decimal.TryParse(match.Groups[2].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cantFromDesc) && cantFromDesc > 1)
                 {
-                    cantEmpaque = cantFromDesc;
+                    cantEmpaque = Math.Round(cantFromDesc, 3, MidpointRounding.AwayFromZero);
                 }
             }
 
             decimal? costoGranel = null;
             if (cantEmpaque > 1 && costo > 0)
             {
-                costoGranel = Math.Round(costo / cantEmpaque, 4);
+                costoGranel = Math.Round(costo / cantEmpaque, 3, MidpointRounding.AwayFromZero);
             }
 
-            // Si el precio de venta es menor al costo del empaque (ej: 0.12 vs 4.57), es el precio de venta unitario/granel
+            // Si el precio de venta es menor al costo del empaque (ej: 0.125 vs 4.570), es el precio de venta unitario/granel
             if (cantEmpaque > 1 && precioVenta > 0 && costo > 0 && precioVenta < costo)
             {
                 if (!precioGranel.HasValue || precioGranel.Value <= 0)
                 {
                     precioGranel = precioVenta;
                 }
-                precioVenta = Math.Round(precioVenta * cantEmpaque, 2);
+                precioVenta = Math.Round(precioVenta * cantEmpaque, 3, MidpointRounding.AwayFromZero);
             }
 
             bool esGranel = (precioGranel.HasValue && precioGranel.Value > 0) || cantEmpaque > 1;

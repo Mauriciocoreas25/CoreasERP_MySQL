@@ -65,6 +65,8 @@ class ApiService {
     String? busqueda,
     int? idCategoria,
   }) async {
+    // Sincronizar en segundo plano cualquier pedido local previo que aún no esté en la nube
+    syncPendingLocalOrdersToCloud();
     try {
       final params = <String, String>{'soloActivos': 'true'};
       if (busqueda != null && busqueda.trim().isNotEmpty) {
@@ -335,10 +337,10 @@ class ApiService {
         )
         .toList();
 
+    final totalPedido = items.fold<double>(0.0, (sum, it) => sum + it.subtotal);
+
     try {
       await _ensureCajaAbierta();
-
-      final totalPedido = items.fold<double>(0.0, (sum, it) => sum + it.subtotal);
 
       final payload = {
         'idCliente': idCliente > 0 ? idCliente : 1,
@@ -373,9 +375,9 @@ class ApiService {
             tipoComprobante: 'Ticket',
             numComprobante: comprobante,
             metodoPago: 'Efectivo',
-            subtotal: totalPedido,
+            subtotal: double.parse(totalPedido.toStringAsFixed(3)),
             impuesto: 0.0,
-            total: totalPedido,
+            total: double.parse(totalPedido.toStringAsFixed(3)),
             estado: 'Pendiente',
             fechaHora: DateTime.now(),
             modalidadEntrega: modalidadEntrega,
@@ -394,34 +396,34 @@ class ApiService {
           );
         }
 
-        if (msg.contains('MySqlRetryingExecutionStrategy') ||
-            msg.contains('CreateExecutionStrategy')) {
-          return await _procesarPedidoConDescuentoDirecto(
-            idCliente: idCliente > 0 ? idCliente : 1,
-            items: items,
-            detallesPedido: detallesPedido,
-            totalPedido: totalPedido,
-            modalidadEntrega: modalidadEntrega,
-            direccionEntrega: direccionEntrega,
-            clienteNombre: clienteNombre,
-            clienteTelefono: clienteTelefono,
-          );
+        if (msg.toLowerCase().contains('insuficiente') ||
+            msg.toLowerCase().contains('stock') ||
+            msg.toLowerCase().contains('existencia')) {
+          return (success: false, message: msg, numComprobante: null, pedido: null);
         }
-
-        return (success: false, message: msg, numComprobante: null, pedido: null);
       }
-      return (
-        success: false,
-        message: 'No pudimos procesar tu pedido en este momento.',
-        numComprobante: null,
-        pedido: null,
+
+      // Fallback directo si el endpoint /api/ventas devuelve error de estrategia transaccional o HTTP 500
+      return await _procesarPedidoConDescuentoDirecto(
+        idCliente: idCliente > 0 ? idCliente : 1,
+        items: items,
+        detallesPedido: detallesPedido,
+        totalPedido: totalPedido,
+        modalidadEntrega: modalidadEntrega,
+        direccionEntrega: direccionEntrega,
+        clienteNombre: clienteNombre,
+        clienteTelefono: clienteTelefono,
       );
     } catch (_) {
-      return (
-        success: false,
-        message: 'Verifica tu conexión a internet e intenta de nuevo.',
-        numComprobante: null,
-        pedido: null,
+      return await _procesarPedidoConDescuentoDirecto(
+        idCliente: idCliente > 0 ? idCliente : 1,
+        items: items,
+        detallesPedido: detallesPedido,
+        totalPedido: totalPedido,
+        modalidadEntrega: modalidadEntrega,
+        direccionEntrega: direccionEntrega,
+        clienteNombre: clienteNombre,
+        clienteTelefono: clienteTelefono,
       );
     }
   }
@@ -432,7 +434,7 @@ class ApiService {
     final m = now.month.toString().padLeft(2, '0');
     final d = now.day.toString().padLeft(2, '0');
     final seq = (now.millisecondsSinceEpoch % 9000 + 1000).toString();
-    return 'T-$y$m$d-$seq';
+    return 'TKT-$y$m$d-$seq';
   }
 
   static Future<({
@@ -451,44 +453,15 @@ class ApiService {
     required String clienteTelefono,
   }) async {
     try {
-      for (final item in items) {
-        final prodActual = await http
-            .get(Uri.parse('$baseUrl/api/productos/${item.producto.idProducto}'))
-            .timeout(const Duration(seconds: 10));
-        if (prodActual.statusCode == 200) {
-          final map = jsonDecode(prodActual.body) as Map<String, dynamic>;
-          final double stockActual = (map['stock'] as num?)?.toDouble() ?? item.producto.stock;
-          final double factor =
-              (item.esGranel && (item.producto.cantidadPorEmpaque ?? 1) > 1)
-                  ? item.producto.cantidadPorEmpaque!
-                  : 1.0;
-          final double descontar = item.cantidad / factor;
-          if (stockActual < descontar) {
-            return (
-              success: false,
-              message: 'Existencias insuficientes para ${item.producto.nombre}.',
-              numComprobante: null,
-              pedido: null,
-            );
-          }
-          map['stock'] = (stockActual - descontar).clamp(0.0, 999999.0);
-          await http.post(
-            Uri.parse('$baseUrl/api/productos'),
-            headers: _headers,
-            body: jsonEncode(map),
-          );
-        }
-      }
-
       final ticketCode = _generateTicketCode();
       final model = VentaHistorialModel(
         idVenta: DateTime.now().millisecondsSinceEpoch ~/ 1000,
         tipoComprobante: 'Ticket',
         numComprobante: ticketCode,
         metodoPago: 'Efectivo',
-        subtotal: totalPedido,
+        subtotal: double.parse(totalPedido.toStringAsFixed(3)),
         impuesto: 0.0,
-        total: totalPedido,
+        total: double.parse(totalPedido.toStringAsFixed(3)),
         estado: 'Pendiente',
         fechaHora: DateTime.now(),
         modalidadEntrega: modalidadEntrega,
@@ -497,8 +470,42 @@ class ApiService {
         clienteTelefono: clienteTelefono,
         detalles: detallesPedido,
       );
+
+      // 1. Guardar inmediatamente el pedido en el servidor cloud ERP (/api/promociones) para que aparezca al instante en Escritorio
       await _saveLocalOrderBackup(model);
-      await _syncOrderToCloudErp(model, idCliente);
+      final syncedOk = await _syncOrderToCloudErp(model, idCliente);
+
+      // 2. Descontar stock producto por producto con tolerancia a fallos individuales
+      for (final item in items) {
+        try {
+          final prodActual = await http
+              .get(Uri.parse('$baseUrl/api/productos/${item.producto.idProducto}'))
+              .timeout(const Duration(seconds: 10));
+          if (prodActual.statusCode == 200) {
+            final map = jsonDecode(prodActual.body) as Map<String, dynamic>;
+            final double stockActual = (map['stock'] as num?)?.toDouble() ?? item.producto.stock;
+            final double factor =
+                (item.esGranel && (item.producto.cantidadPorEmpaque ?? 1) > 1)
+                    ? item.producto.cantidadPorEmpaque!
+                    : 1.0;
+            final double descontar = item.cantidad / factor;
+            final double nuevoStock = double.parse((stockActual - descontar).clamp(0.0, 999999.0).toStringAsFixed(3));
+            map['stock'] = nuevoStock;
+            await http
+                .post(
+                  Uri.parse('$baseUrl/api/productos'),
+                  headers: _headers,
+                  body: jsonEncode(map),
+                )
+                .timeout(const Duration(seconds: 10));
+          }
+        } catch (_) {}
+      }
+
+      if (!syncedOk) {
+        await _syncOrderToCloudErp(model, idCliente);
+      }
+
       return (
         success: true,
         message: 'Pedido confirmado exitosamente.',
@@ -508,7 +515,7 @@ class ApiService {
     } catch (_) {
       return (
         success: false,
-        message: 'No se pudo completar el pedido. Intenta nuevamente.',
+        message: 'No se pudo completar el pedido. Verifica tu conexión a internet.',
         numComprobante: null,
         pedido: null,
       );
@@ -516,12 +523,13 @@ class ApiService {
   }
 
   /// Sincroniza la cabecera y líneas del pedido hacia el ERP de Escritorio (módulo Pedidos App Móvil)
-  static Future<void> _syncOrderToCloudErp(VentaHistorialModel model, int idCliente) async {
+  static Future<bool> _syncOrderToCloudErp(VentaHistorialModel model, int idCliente) async {
     try {
       final isPickUp = model.modalidadEntrega.toLowerCase().contains('retiro') ||
           model.modalidadEntrega.toLowerCase().contains('pick');
       final modCode = isPickUp ? 'PICKUP' : 'DOMICILIO';
-      final fechaIso = model.fechaHora.toIso8601String().substring(0, 16);
+      final isoStr = model.fechaHora.toIso8601String();
+      final fechaIso = isoStr.length >= 16 ? isoStr.substring(0, 16) : isoStr;
 
       String rawDesc = '${model.clienteNombre}||${model.clienteTelefono}||${model.direccionEntrega}';
       if (rawDesc.length > 250) {
@@ -535,43 +543,107 @@ class ApiService {
         'idPromocion': 0,
         'nombre': '[ORD_HDR]|${model.numComprobante}|$idCliente|$modCode|$fechaIso',
         'descripcion': rawDesc,
-        'tipoDescuento': 'Pendiente',
-        'valor': model.total >= 0.01 ? model.total : 0.01,
+        'tipoDescuento': model.estado.isNotEmpty ? model.estado : 'Pendiente',
+        'valor': double.parse((model.total >= 0.001 ? model.total : 0.001).toStringAsFixed(3)),
         'fechaInicio': futureStart,
         'fechaFin': futureEnd,
         'estado': true,
         'idProducto': null,
       };
 
-      await http.post(
-        Uri.parse('$baseUrl/api/promociones'),
-        headers: _headers,
-        body: jsonEncode(headerPayload),
-      );
+      final hdrRes = await http
+          .post(
+            Uri.parse('$baseUrl/api/promociones'),
+            headers: _headers,
+            body: jsonEncode(headerPayload),
+          )
+          .timeout(const Duration(seconds: 12));
+
+      if (hdrRes.statusCode != 200) return false;
 
       for (final d in model.detalles) {
-        String itemDesc = '${d.codigo}||${d.nombre}||${d.precioUnitario.toStringAsFixed(2)}';
+        String itemDesc = '${d.codigo}||${d.nombre}||${d.precioUnitario.toStringAsFixed(3)}';
         if (itemDesc.length > 250) {
           itemDesc = itemDesc.substring(0, 250);
         }
         final itemPayload = {
           'idPromocion': 0,
-          'nombre': '[ORD_ITM]|${model.numComprobante}|${d.cantidad}|${d.unidadMedida}',
+          'nombre': '[ORD_ITM]|${model.numComprobante}|${d.cantidad.toStringAsFixed(3)}|${d.unidadMedida}',
           'descripcion': itemDesc,
           'tipoDescuento': 'Item',
-          'valor': d.subtotal >= 0.01 ? d.subtotal : 0.01,
+          'valor': double.parse((d.subtotal >= 0.001 ? d.subtotal : 0.001).toStringAsFixed(3)),
           'fechaInicio': futureStart,
           'fechaFin': futureEnd,
           'estado': true,
           'idProducto': d.idProducto > 0 ? d.idProducto : null,
         };
-        await http.post(
-          Uri.parse('$baseUrl/api/promociones'),
-          headers: _headers,
-          body: jsonEncode(itemPayload),
-        );
+        await http
+            .post(
+              Uri.parse('$baseUrl/api/promociones'),
+              headers: _headers,
+              body: jsonEncode(itemPayload),
+            )
+            .timeout(const Duration(seconds: 10));
       }
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Sube automáticamente a la nube cualquier pedido guardado en el teléfono que aún no esté en /api/promociones
+  static bool _isSyncingPending = false;
+  static Future<void> syncPendingLocalOrdersToCloud({int? defaultIdCliente}) async {
+    if (_isSyncingPending) return;
+    _isSyncingPending = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('local_orders_history');
+      if (raw == null || raw.isEmpty) return;
+
+      final List localList = jsonDecode(raw);
+      if (localList.isEmpty) return;
+
+      final promoRes = await http
+          .get(Uri.parse('$baseUrl/api/promociones'))
+          .timeout(const Duration(seconds: 12));
+      if (promoRes.statusCode != 200) return;
+
+      final List promoList = jsonDecode(promoRes.body);
+      final Set<String> cloudTickets = {};
+      for (final p in promoList) {
+        final map = p as Map<String, dynamic>;
+        final nombre = map['nombre']?.toString() ?? '';
+        if (nombre.startsWith('[ORD_HDR]|')) {
+          final parts = nombre.split('|');
+          if (parts.length >= 2) {
+            cloudTickets.add(parts[1].trim().toUpperCase());
+          }
+        }
+      }
+
+      int idCli = defaultIdCliente ?? 1;
+      final savedProfileRaw = prefs.getString('customer_profile');
+      if (savedProfileRaw != null) {
+        try {
+          final profMap = jsonDecode(savedProfileRaw) as Map<String, dynamic>;
+          final pId = (profMap['idCliente'] as num?)?.toInt() ?? 1;
+          if (pId > 1) idCli = pId;
+        } catch (_) {}
+      }
+
+      for (final e in localList) {
+        final model = VentaHistorialModel.fromJson(e as Map<String, dynamic>);
+        if (model.numComprobante.isNotEmpty &&
+            !cloudTickets.contains(model.numComprobante.trim().toUpperCase())) {
+          await _syncOrderToCloudErp(model, idCli);
+          cloudTickets.add(model.numComprobante.trim().toUpperCase());
+        }
+      }
+    } catch (_) {
+    } finally {
+      _isSyncingPending = false;
+    }
   }
 
   static Future<void> _saveLocalOrderBackup(VentaHistorialModel model) async {
@@ -603,6 +675,7 @@ class ApiService {
   }
 
   static Future<List<VentaHistorialModel>> getHistorialPedidos({int? idCliente}) async {
+    await syncPendingLocalOrdersToCloud(defaultIdCliente: idCliente);
     final List<VentaHistorialModel> combined = [];
     final Map<String, VentaHistorialModel> localByTicket = {};
 

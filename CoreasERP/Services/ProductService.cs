@@ -104,15 +104,30 @@ public class ProductService : IProductService
             if (existeCodigo)
                 return (false, "Ya existe otro producto registrado con este código de barras.", null);
 
+            producto.PrecioCompra = Math.Round(Math.Max(0m, producto.PrecioCompra), 3, MidpointRounding.AwayFromZero);
+            producto.PrecioVenta = Math.Round(Math.Max(0m, producto.PrecioVenta), 3, MidpointRounding.AwayFromZero);
+            producto.PrecioGranel = producto.PrecioGranel.HasValue ? Math.Round(producto.PrecioGranel.Value, 3, MidpointRounding.AwayFromZero) : null;
+            producto.CantidadPorEmpaque = producto.CantidadPorEmpaque.HasValue && producto.CantidadPorEmpaque.Value > 0
+                ? Math.Round(producto.CantidadPorEmpaque.Value, 3, MidpointRounding.AwayFromZero)
+                : 1.000m;
+            if (producto.CostoGranel.HasValue && producto.CostoGranel.Value > 0)
+            {
+                producto.CostoGranel = Math.Round(producto.CostoGranel.Value, 3, MidpointRounding.AwayFromZero);
+            }
+            else if (producto.PrecioCompra > 0 && producto.CantidadPorEmpaque > 1)
+            {
+                producto.CostoGranel = Math.Round(producto.PrecioCompra / producto.CantidadPorEmpaque.Value, 3, MidpointRounding.AwayFromZero);
+            }
+            producto.Stock = Math.Round(producto.Stock, 3, MidpointRounding.AwayFromZero);
+            producto.StockMinimo = Math.Round(producto.StockMinimo, 3, MidpointRounding.AwayFromZero);
+            producto.MargenExcepcion = Math.Round(producto.MargenExcepcion, 3, MidpointRounding.AwayFromZero);
+
             if (producto.IdProducto == 0)
             {
                 producto.Codigo = producto.Codigo.Trim();
                 producto.Nombre = producto.Nombre.Trim();
                 producto.FechaCreacion = DateTime.Now;
                 producto.Estado = true;
-                // Si es producto nuevo sin precio fijado, se inicia en $0.00
-                if (producto.PrecioCompra < 0) producto.PrecioCompra = 0.00m;
-                if (producto.PrecioVenta < 0) producto.PrecioVenta = 0.00m;
                 if (string.IsNullOrWhiteSpace(producto.UnidadMedida)) producto.UnidadMedida = "Unidad";
                 if (producto.PrecioGranel.HasValue && producto.PrecioGranel.Value > 0) producto.EsGranel = true;
                 await context.Productos.AddAsync(producto);

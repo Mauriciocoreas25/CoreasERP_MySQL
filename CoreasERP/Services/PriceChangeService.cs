@@ -54,15 +54,19 @@ public class PriceChangeService : IPriceChangeService
         if (cambio.Producto == null)
             return (false, "El producto asociado no existe.");
 
-        decimal nuevoPrecioVenta = precioVentaFinal ?? cambio.PrecioVentaNuevo;
-        cambio.Producto.PrecioCompra = cambio.CostoNuevo;
+        decimal nuevoPrecioVenta = Math.Round(precioVentaFinal ?? cambio.PrecioVentaNuevo, 3, MidpointRounding.AwayFromZero);
+        cambio.Producto.PrecioCompra = Math.Round(cambio.CostoNuevo, 3, MidpointRounding.AwayFromZero);
+        if (cambio.Producto.CantidadPorEmpaque.HasValue && cambio.Producto.CantidadPorEmpaque.Value > 1)
+        {
+            cambio.Producto.CostoGranel = Math.Round(cambio.Producto.PrecioCompra / cambio.Producto.CantidadPorEmpaque.Value, 3, MidpointRounding.AwayFromZero);
+        }
         cambio.Producto.PrecioVenta = nuevoPrecioVenta;
         cambio.PrecioVentaNuevo = nuevoPrecioVenta;
         cambio.Estado = "Aplicado";
         cambio.FechaAplicacion = DateTime.Now;
 
         await context.SaveChangesAsync();
-        return (true, $"Precio actualizado exitosamente para {cambio.Producto.Nombre} a ${nuevoPrecioVenta:F2}");
+        return (true, $"Precio actualizado exitosamente para {cambio.Producto.Nombre} a ${nuevoPrecioVenta:F3}");
     }
 
     public async Task<(bool Success, string Message)> DescartarCambioAsync(int idCambioPrecio)
@@ -95,8 +99,12 @@ public class PriceChangeService : IPriceChangeService
         {
             if (cambio.Producto != null)
             {
-                cambio.Producto.PrecioCompra = cambio.CostoNuevo;
-                cambio.Producto.PrecioVenta = cambio.PrecioVentaNuevo;
+                cambio.Producto.PrecioCompra = Math.Round(cambio.CostoNuevo, 3, MidpointRounding.AwayFromZero);
+                if (cambio.Producto.CantidadPorEmpaque.HasValue && cambio.Producto.CantidadPorEmpaque.Value > 1)
+                {
+                    cambio.Producto.CostoGranel = Math.Round(cambio.Producto.PrecioCompra / cambio.Producto.CantidadPorEmpaque.Value, 3, MidpointRounding.AwayFromZero);
+                }
+                cambio.Producto.PrecioVenta = Math.Round(cambio.PrecioVentaNuevo, 3, MidpointRounding.AwayFromZero);
                 cambio.Estado = "Aplicado";
                 cambio.FechaAplicacion = DateTime.Now;
                 count++;

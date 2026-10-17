@@ -148,27 +148,38 @@ public class DashboardService : IDashboardService
             detallePeriodoQuery = detallePeriodoQuery.Where(d => d.Venta != null && d.Venta.FechaHora <= fechaFin.Value);
         }
 
-        // Costo de mercadería vendida en el período
+        // Costo de mercadería vendida en el período (incluyendo cálculo exacto a 3 decimales para ventas a granel/fraccionadas)
         decimal costoPeriodo = await detallePeriodoQuery
             .SumAsync(d => (decimal?)(d.Cantidad * (
                 d.Producto == null ? 0m :
-                (d.Producto.CostoGranel != null && d.Producto.PrecioGranel != null && d.Precio == d.Producto.PrecioGranel)
-                    ? d.Producto.CostoGranel.Value
+                (d.Producto.PrecioGranel != null && d.Precio == d.Producto.PrecioGranel)
+                    ? (d.Producto.CostoGranel != null && d.Producto.CostoGranel > 0
+                        ? d.Producto.CostoGranel.Value
+                        : (d.Producto.CantidadPorEmpaque != null && d.Producto.CantidadPorEmpaque > 1
+                            ? d.Producto.PrecioCompra / d.Producto.CantidadPorEmpaque.Value
+                            : d.Producto.PrecioCompra))
                     : d.Producto.PrecioCompra
-            ))) ?? 0.00m;
+            ))) ?? 0.000m;
+        costoPeriodo = Math.Round(costoPeriodo, 3, MidpointRounding.AwayFromZero);
 
         // Totales Históricos Acumulados Globales
         decimal ingresosHistorico = await context.Ventas
             .Where(v => v.Estado == "Completada")
-            .SumAsync(v => (decimal?)v.Total) ?? 0.00m;
+            .SumAsync(v => (decimal?)v.Total) ?? 0.000m;
+        ingresosHistorico = Math.Round(ingresosHistorico, 3, MidpointRounding.AwayFromZero);
 
         decimal costoHistorico = await detalleGlobalQuery
             .SumAsync(d => (decimal?)(d.Cantidad * (
                 d.Producto == null ? 0m :
-                (d.Producto.CostoGranel != null && d.Producto.PrecioGranel != null && d.Precio == d.Producto.PrecioGranel)
-                    ? d.Producto.CostoGranel.Value
+                (d.Producto.PrecioGranel != null && d.Precio == d.Producto.PrecioGranel)
+                    ? (d.Producto.CostoGranel != null && d.Producto.CostoGranel > 0
+                        ? d.Producto.CostoGranel.Value
+                        : (d.Producto.CantidadPorEmpaque != null && d.Producto.CantidadPorEmpaque > 1
+                            ? d.Producto.PrecioCompra / d.Producto.CantidadPorEmpaque.Value
+                            : d.Producto.PrecioCompra))
                     : d.Producto.PrecioCompra
-            ))) ?? 0.00m;
+            ))) ?? 0.000m;
+        costoHistorico = Math.Round(costoHistorico, 3, MidpointRounding.AwayFromZero);
 
         int cantidadVentasHistorico = await context.Ventas
             .CountAsync(v => v.Estado == "Completada");

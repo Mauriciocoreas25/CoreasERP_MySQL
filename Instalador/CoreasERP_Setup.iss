@@ -36,6 +36,7 @@ Name: "C:\CoreasERP\uploads\products"; Permissions: users-modify
 
 [Files]
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\.env.example"; DestDir: "C:\CoreasERP"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\appicon.ico"

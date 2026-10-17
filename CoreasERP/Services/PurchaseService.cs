@@ -11,7 +11,7 @@ public class PurchaseItemDto
     public string Nombre { get; set; } = string.Empty;
     public decimal Cantidad { get; set; } = 1.000m;
     public decimal PrecioCompra { get; set; }
-    public decimal Subtotal => Cantidad * PrecioCompra;
+    public decimal Subtotal => Math.Round(Cantidad * PrecioCompra, 3, MidpointRounding.AwayFromZero);
 }
 
 public interface IPurchaseService
@@ -136,7 +136,7 @@ public class PurchaseService : IPurchaseService
         if (items == null || !items.Any())
             return (false, "Debe agregar al menos un producto a la compra.", null);
 
-        decimal total = items.Sum(i => i.Subtotal);
+        decimal total = Math.Round(items.Sum(i => i.Subtotal), 3, MidpointRounding.AwayFromZero);
 
         await using var context = await _contextFactory.CreateDbContextAsync();
         var strategy = context.Database.CreateExecutionStrategy();
@@ -165,39 +165,43 @@ public class PurchaseService : IPurchaseService
 
                 foreach (var item in items)
                 {
+                    decimal cantRedondeada = Math.Round(item.Cantidad, 3, MidpointRounding.AwayFromZero);
+                    decimal costoRedondeado = Math.Round(item.PrecioCompra, 3, MidpointRounding.AwayFromZero);
+                    decimal subRedondeado = Math.Round(cantRedondeada * costoRedondeado, 3, MidpointRounding.AwayFromZero);
+
                     var detalle = new DetalleCompra
                     {
                         IdCompra = compra.IdCompra,
                         IdProducto = item.IdProducto,
-                        Cantidad = item.Cantidad,
-                        PrecioCompra = item.PrecioCompra,
-                        Subtotal = item.Subtotal
+                        Cantidad = cantRedondeada,
+                        PrecioCompra = costoRedondeado,
+                        Subtotal = subRedondeado
                     };
                     await context.DetalleCompras.AddAsync(detalle);
 
-                    // Incrementar inventario físico automáticamente
+                    // Incrementar inventario físico automáticamente a 3 decimales
                     var prod = await context.Productos.FindAsync(item.IdProducto);
                     if (prod != null)
                     {
-                        prod.Stock += item.Cantidad;
+                        prod.Stock = Math.Round(prod.Stock + cantRedondeada, 3, MidpointRounding.AwayFromZero);
 
                         // Detección automática: Solo si hay modificación en el costo unitario
-                        if (item.PrecioCompra != prod.PrecioCompra)
+                        if (costoRedondeado != prod.PrecioCompra)
                         {
                             decimal margen = prod.MargenExcepcion > 0
                                 ? prod.MargenExcepcion
-                                : (prod.PrecioCompra > 0 ? Math.Round(((prod.PrecioVenta - prod.PrecioCompra) / prod.PrecioCompra) * 100m, 2) : 30.00m);
+                                : (prod.PrecioCompra > 0 ? Math.Round(((prod.PrecioVenta - prod.PrecioCompra) / prod.PrecioCompra) * 100m, 3, MidpointRounding.AwayFromZero) : 30.000m);
 
-                            if (margen <= 0) margen = 30.00m;
+                            if (margen <= 0) margen = 30.000m;
 
-                            decimal precioVentaSugerido = Math.Round(item.PrecioCompra * (1m + (margen / 100m)), 2);
+                            decimal precioVentaSugerido = Math.Round(costoRedondeado * (1m + (margen / 100m)), 3, MidpointRounding.AwayFromZero);
 
                             var cambioPrecio = new CambioPrecio
                             {
                                 IdProducto = prod.IdProducto,
                                 IdCompra = compra.IdCompra,
                                 CostoAnterior = prod.PrecioCompra,
-                                CostoNuevo = item.PrecioCompra,
+                                CostoNuevo = costoRedondeado,
                                 PrecioVentaAnterior = prod.PrecioVenta,
                                 PrecioVentaNuevo = precioVentaSugerido,
                                 MargenPorcentaje = margen,
@@ -208,7 +212,11 @@ public class PurchaseService : IPurchaseService
                             await context.CambiosPrecio.AddAsync(cambioPrecio);
                         }
 
-                        prod.PrecioCompra = item.PrecioCompra; // Actualizar costo de adquisición
+                        prod.PrecioCompra = costoRedondeado; // Actualizar costo de adquisición
+                        if (prod.CantidadPorEmpaque.HasValue && prod.CantidadPorEmpaque.Value > 1)
+                        {
+                            prod.CostoGranel = Math.Round(costoRedondeado / prod.CantidadPorEmpaque.Value, 3, MidpointRounding.AwayFromZero);
+                        }
                     }
                 }
 

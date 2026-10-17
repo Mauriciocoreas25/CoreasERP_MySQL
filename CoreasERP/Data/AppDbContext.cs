@@ -86,13 +86,14 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Codigo).HasMaxLength(100).IsRequired();
             entity.HasIndex(e => e.Codigo).IsUnique();
             entity.Property(e => e.Nombre).HasMaxLength(150).IsRequired();
-            entity.Property(e => e.PrecioCompra).HasPrecision(10, 2);
-            entity.Property(e => e.PrecioVenta).HasPrecision(10, 2);
-            entity.Property(e => e.PrecioGranel).HasPrecision(10, 2);
-            entity.Property(e => e.CostoGranel).HasPrecision(10, 4);
-            entity.Property(e => e.CantidadPorEmpaque).HasPrecision(10, 2).HasDefaultValue(1.00m);
+            entity.Property(e => e.PrecioCompra).HasPrecision(12, 3);
+            entity.Property(e => e.PrecioVenta).HasPrecision(12, 3);
+            entity.Property(e => e.PrecioGranel).HasPrecision(12, 3);
+            entity.Property(e => e.CostoGranel).HasPrecision(12, 3);
+            entity.Property(e => e.CantidadPorEmpaque).HasPrecision(12, 3).HasDefaultValue(1.000m);
             entity.Property(e => e.Stock).HasPrecision(12, 3).HasDefaultValue(0.000m);
             entity.Property(e => e.StockMinimo).HasPrecision(12, 3).HasDefaultValue(5.000m);
+            entity.Property(e => e.MargenExcepcion).HasPrecision(10, 3).HasDefaultValue(0.000m);
             entity.Property(e => e.EsGranel).HasDefaultValue(false);
             entity.Property(e => e.UnidadMedida).HasMaxLength(30).HasDefaultValue("Unidad");
             entity.Property(e => e.Imagen).HasMaxLength(255);
@@ -127,10 +128,10 @@ public class AppDbContext : DbContext
         {
             entity.ToTable("CortesCaja");
             entity.HasKey(e => e.IdCorte);
-            entity.Property(e => e.MontoInicial).HasPrecision(10, 2);
-            entity.Property(e => e.TotalVentas).HasPrecision(10, 2);
-            entity.Property(e => e.MontoFinal).HasPrecision(10, 2);
-            entity.Property(e => e.Diferencia).HasPrecision(10, 2);
+            entity.Property(e => e.MontoInicial).HasPrecision(12, 3);
+            entity.Property(e => e.TotalVentas).HasPrecision(12, 3);
+            entity.Property(e => e.MontoFinal).HasPrecision(12, 3);
+            entity.Property(e => e.Diferencia).HasPrecision(12, 3);
             entity.Property(e => e.Estado).HasMaxLength(20).HasDefaultValue("Abierta");
             entity.Property(e => e.FechaApertura).HasDefaultValueSql("CURRENT_TIMESTAMP");
 
@@ -148,11 +149,11 @@ public class AppDbContext : DbContext
             entity.Property(e => e.TipoComprobante).HasMaxLength(30).HasDefaultValue("Ticket");
             entity.Property(e => e.NumComprobante).HasMaxLength(50).IsRequired();
             entity.Property(e => e.MetodoPago).HasMaxLength(50).HasDefaultValue("Efectivo");
-            entity.Property(e => e.Subtotal).HasPrecision(10, 2);
-            entity.Property(e => e.Impuesto).HasPrecision(10, 2);
-            entity.Property(e => e.Total).HasPrecision(10, 2);
-            entity.Property(e => e.PagoCon).HasPrecision(10, 2);
-            entity.Property(e => e.Cambio).HasPrecision(10, 2);
+            entity.Property(e => e.Subtotal).HasPrecision(12, 3);
+            entity.Property(e => e.Impuesto).HasPrecision(12, 3);
+            entity.Property(e => e.Total).HasPrecision(12, 3);
+            entity.Property(e => e.PagoCon).HasPrecision(12, 3);
+            entity.Property(e => e.Cambio).HasPrecision(12, 3);
             entity.Property(e => e.Estado).HasMaxLength(30).HasDefaultValue("Completada");
             entity.Property(e => e.FechaHora).HasDefaultValueSql("CURRENT_TIMESTAMP");
             entity.Property(e => e.CodigoGeneracion).HasMaxLength(36);
@@ -179,9 +180,9 @@ public class AppDbContext : DbContext
             entity.ToTable("DetalleVentas");
             entity.HasKey(e => e.IdDetalle);
             entity.Property(e => e.Cantidad).HasPrecision(12, 3);
-            entity.Property(e => e.Precio).HasPrecision(10, 2);
-            entity.Property(e => e.Descuento).HasPrecision(10, 2).HasDefaultValue(0.00m);
-            entity.Property(e => e.Subtotal).HasPrecision(10, 2);
+            entity.Property(e => e.Precio).HasPrecision(12, 3);
+            entity.Property(e => e.Descuento).HasPrecision(12, 3).HasDefaultValue(0.000m);
+            entity.Property(e => e.Subtotal).HasPrecision(12, 3);
 
             entity.HasOne(e => e.Venta)
                 .WithMany(v => v.DetalleVentas)
@@ -216,7 +217,7 @@ public class AppDbContext : DbContext
             entity.ToTable("Compras");
             entity.HasKey(e => e.IdCompra);
             entity.Property(e => e.NumFactura).HasMaxLength(50).IsRequired();
-            entity.Property(e => e.Total).HasPrecision(10, 2);
+            entity.Property(e => e.Total).HasPrecision(12, 3);
             entity.Property(e => e.Estado).HasMaxLength(30).HasDefaultValue("Completada");
             entity.Property(e => e.FechaHora).HasDefaultValueSql("CURRENT_TIMESTAMP");
 
@@ -237,8 +238,8 @@ public class AppDbContext : DbContext
             entity.ToTable("DetalleCompras");
             entity.HasKey(e => e.IdDetalleCompra);
             entity.Property(e => e.Cantidad).HasPrecision(12, 3);
-            entity.Property(e => e.PrecioCompra).HasPrecision(10, 2);
-            entity.Property(e => e.Subtotal).HasPrecision(10, 2);
+            entity.Property(e => e.PrecioCompra).HasPrecision(12, 3);
+            entity.Property(e => e.Subtotal).HasPrecision(12, 3);
 
             entity.HasOne(e => e.Compra)
                 .WithMany(c => c.DetalleCompras)
@@ -259,7 +260,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Nombre).HasMaxLength(100).IsRequired();
             entity.Property(e => e.Descripcion).HasMaxLength(255);
             entity.Property(e => e.TipoDescuento).HasMaxLength(30).HasDefaultValue("Porcentaje");
-            entity.Property(e => e.Valor).HasPrecision(10, 2);
+            entity.Property(e => e.Valor).HasPrecision(12, 3);
             entity.Property(e => e.Estado).HasDefaultValue(true);
 
             entity.HasOne(e => e.Producto)
@@ -464,11 +465,11 @@ public class AppDbContext : DbContext
         {
             entity.ToTable("CambiosPrecio");
             entity.HasKey(e => e.IdCambioPrecio);
-            entity.Property(e => e.CostoAnterior).HasPrecision(18, 2);
-            entity.Property(e => e.CostoNuevo).HasPrecision(18, 2);
-            entity.Property(e => e.PrecioVentaAnterior).HasPrecision(18, 2);
-            entity.Property(e => e.PrecioVentaNuevo).HasPrecision(18, 2);
-            entity.Property(e => e.MargenPorcentaje).HasPrecision(18, 2);
+            entity.Property(e => e.CostoAnterior).HasPrecision(12, 3);
+            entity.Property(e => e.CostoNuevo).HasPrecision(12, 3);
+            entity.Property(e => e.PrecioVentaAnterior).HasPrecision(12, 3);
+            entity.Property(e => e.PrecioVentaNuevo).HasPrecision(12, 3);
+            entity.Property(e => e.MargenPorcentaje).HasPrecision(12, 3);
             entity.Property(e => e.Motivo).HasMaxLength(255);
             entity.Property(e => e.Estado).HasMaxLength(50).HasDefaultValue("Pendiente");
             entity.Property(e => e.FechaHora).HasDefaultValueSql("CURRENT_TIMESTAMP");
@@ -491,8 +492,8 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.IdMerma);
             entity.Property(e => e.Cantidad).HasPrecision(12, 3);
             entity.Property(e => e.CantidadBaseStock).HasPrecision(12, 3);
-            entity.Property(e => e.CostoUnitario).HasPrecision(10, 4);
-            entity.Property(e => e.CostoTotal).HasPrecision(12, 2);
+            entity.Property(e => e.CostoUnitario).HasPrecision(12, 3);
+            entity.Property(e => e.CostoTotal).HasPrecision(12, 3);
             entity.Property(e => e.Motivo).HasMaxLength(100).IsRequired();
             entity.Property(e => e.Observaciones).HasMaxLength(500);
             entity.Property(e => e.FechaHora).HasDefaultValueSql("CURRENT_TIMESTAMP");

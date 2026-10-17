@@ -13,15 +13,15 @@ public class CartItemDto
     public string Nombre { get; set; } = string.Empty;
     public decimal Precio { get; set; }
     public decimal Cantidad { get; set; } = 1.000m;
-    public decimal Descuento { get; set; } = 0.00m;
+    public decimal Descuento { get; set; } = 0.000m;
     public decimal StockDisponible { get; set; }
     public bool EsGranel { get; set; } = false;
-    public decimal CantidadPorEmpaque { get; set; } = 1.00m;
+    public decimal CantidadPorEmpaque { get; set; } = 1.000m;
     public string UnidadMedida { get; set; } = "Unidad";
-    public decimal CostoUnitario { get; set; } = 0.00m;
-    public decimal Subtotal => (Cantidad * Precio) - Descuento;
-    public decimal CostoSubtotal => Math.Round(Cantidad * CostoUnitario, 2);
-    public decimal CantidadBaseStock => (EsGranel && CantidadPorEmpaque > 1) ? (Cantidad / CantidadPorEmpaque) : Cantidad;
+    public decimal CostoUnitario { get; set; } = 0.000m;
+    public decimal Subtotal => Math.Round((Cantidad * Precio) - Descuento, 3, MidpointRounding.AwayFromZero);
+    public decimal CostoSubtotal => Math.Round(Cantidad * CostoUnitario, 3, MidpointRounding.AwayFromZero);
+    public decimal CantidadBaseStock => Math.Round((EsGranel && CantidadPorEmpaque > 1) ? (Cantidad / CantidadPorEmpaque) : Cantidad, 3, MidpointRounding.AwayFromZero);
 }
 
 public interface IPosService
@@ -73,16 +73,16 @@ public class PosService : IPosService
         if (items == null || !items.Any())
             return (false, "El carrito de compras está vacío.", null);
 
-        decimal total = items.Sum(i => i.Subtotal);
+        decimal total = Math.Round(items.Sum(i => i.Subtotal), 3, MidpointRounding.AwayFromZero);
         if (total <= 0)
             return (false, "El total de la venta debe ser mayor a cero.", null);
 
         bool esAnticipo = tipoComprobante.Equals("Anticipo", StringComparison.OrdinalIgnoreCase);
         bool esCotizacion = tipoComprobante.Equals("Cotización", StringComparison.OrdinalIgnoreCase);
 
-        if (!esAnticipo && !esCotizacion && metodoPago == "Efectivo" && pagoCon < total)
+        if (!esAnticipo && !esCotizacion && metodoPago == "Efectivo" && Math.Round(pagoCon, 3, MidpointRounding.AwayFromZero) < total)
         {
-            return (false, $"Monto recibido (${pagoCon:F2}) es menor al total a pagar (${total:F2}).", null);
+            return (false, $"Monto recibido (${pagoCon:F3}) es menor al total a pagar (${total:F3}).", null);
         }
 
         if (esAnticipo && pagoCon < 0)
@@ -121,7 +121,7 @@ public class PosService : IPosService
                         }
 
                         decimal factor = (item.EsGranel && item.CantidadPorEmpaque > 1) ? item.CantidadPorEmpaque : 1m;
-                        decimal cantADescontar = item.Cantidad / factor;
+                        decimal cantADescontar = Math.Round(item.Cantidad / factor, 3, MidpointRounding.AwayFromZero);
 
                         if (producto.Stock < cantADescontar)
                         {
@@ -130,17 +130,19 @@ public class PosService : IPosService
                             return;
                         }
 
-                        // Descontar inventario físico
-                        producto.Stock -= cantADescontar;
+                        // Descontar inventario físico a 3 decimales exactos
+                        producto.Stock = Math.Round(producto.Stock - cantADescontar, 3, MidpointRounding.AwayFromZero);
                     }
                 }
 
-                // 2. Cálculos financieros (IVA 13% incluido en precio)
-                decimal subtotal = Math.Round(total / 1.13m, 2);
-                decimal impuesto = total - subtotal;
-                decimal montoAbonado = esAnticipo ? Math.Min(pagoCon, total) : (esCotizacion ? 0m : (metodoPago == "Efectivo" ? total : total));
-                decimal saldoPendiente = esAnticipo ? Math.Max(0m, total - pagoCon) : 0m;
-                decimal? cambio = (!esCotizacion && metodoPago == "Efectivo" && pagoCon > total) ? (pagoCon - total) : 0.00m;
+                // 2. Cálculos financieros (IVA 13% incluido en precio, redondeo a 3 decimales según manual DTE Hacienda)
+                decimal subtotal = Math.Round(total / 1.13m, 3, MidpointRounding.AwayFromZero);
+                decimal impuesto = Math.Round(total - subtotal, 3, MidpointRounding.AwayFromZero);
+                decimal montoAbonado = Math.Round(esAnticipo ? Math.Min(pagoCon, total) : (esCotizacion ? 0m : total), 3, MidpointRounding.AwayFromZero);
+                decimal saldoPendiente = Math.Round(esAnticipo ? Math.Max(0m, total - pagoCon) : 0m, 3, MidpointRounding.AwayFromZero);
+                decimal? cambio = (!esCotizacion && metodoPago == "Efectivo" && pagoCon > total)
+                    ? Math.Round(pagoCon - total, 3, MidpointRounding.AwayFromZero)
+                    : 0.000m;
 
                 // 3. Generar correlativo DTE / Comprobante
                 var config = await context.ConfiguracionNegocio.FirstOrDefaultAsync();
@@ -205,7 +207,7 @@ public class PosService : IPosService
                     Subtotal = subtotal,
                     Impuesto = impuesto,
                     Total = total,
-                    PagoCon = esCotizacion ? 0m : (metodoPago == "Efectivo" ? pagoCon : (esAnticipo ? pagoCon : total)),
+                    PagoCon = Math.Round(esCotizacion ? 0m : (metodoPago == "Efectivo" ? pagoCon : (esAnticipo ? pagoCon : total)), 3, MidpointRounding.AwayFromZero),
                     Cambio = cambio,
                     Estado = esCotizacion ? "Cotización" : "Completada",
                     FechaHora = DateTime.Now
@@ -221,10 +223,10 @@ public class PosService : IPosService
                     {
                         IdVenta = venta.IdVenta,
                         IdProducto = item.IdProducto,
-                        Cantidad = item.Cantidad,
-                        Precio = item.Precio,
-                        Descuento = item.Descuento,
-                        Subtotal = item.Subtotal
+                        Cantidad = Math.Round(item.Cantidad, 3, MidpointRounding.AwayFromZero),
+                        Precio = Math.Round(item.Precio, 3, MidpointRounding.AwayFromZero),
+                        Descuento = Math.Round(item.Descuento, 3, MidpointRounding.AwayFromZero),
+                        Subtotal = Math.Round(item.Subtotal, 3, MidpointRounding.AwayFromZero)
                     };
                     await context.DetalleVentas.AddAsync(detalle);
                 }

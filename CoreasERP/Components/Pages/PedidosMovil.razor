@@ -1,15 +1,17 @@
 @page "/pedidos-movil"
+@implements IDisposable
 @inject IPromotionService PromotionService
+@inject IPosService PosService
 @inject IPrintService PrintService
 @inject ISettingsService SettingsService
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
     <div>
         <h4 class="fw-bold mb-1">Pedidos de App Móvil (Retiro en Tienda y Domicilio)</h4>
-        <p class="text-muted small mb-0">Gestiona la preparación de productos (Picking), despacho a domicilio y entregas en tienda de los pedidos recibidos desde la App Móvil</p>
+        <p class="text-muted small mb-0">Gestiona la preparación de productos (Picking), despacho a domicilio y entregas en tienda de los pedidos recibidos desde la App Móvil (Sincronización automática cada 8s)</p>
     </div>
     <div class="d-flex align-items-center gap-2">
-        <button class="btn btn-outline-secondary btn-sm px-3 fw-semibold" @onclick="CargarPedidos" disabled="@isLoading">
+        <button class="btn btn-outline-secondary btn-sm px-3 fw-semibold" @onclick="() => CargarPedidos(false)" disabled="@isLoading">
             @(isLoading ? "Actualizando..." : "Actualizar Pedidos")
         </button>
     </div>
@@ -411,14 +413,32 @@
         .OrderByDescending(p => p.FechaPedido)
         .ToList();
 
+    private System.Threading.Timer? _autoRefreshTimer;
+
     protected override async Task OnInitializedAsync()
     {
-        await CargarPedidos();
+        await CargarPedidos(false);
+        _autoRefreshTimer = new System.Threading.Timer(async _ =>
+        {
+            if (!isLoading && !isUpdatingStatus)
+            {
+                await InvokeAsync(async () =>
+                {
+                    await CargarPedidos(true);
+                    StateHasChanged();
+                });
+            }
+        }, null, TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(8));
     }
 
-    private async Task CargarPedidos()
+    public void Dispose()
     {
-        isLoading = true;
+        _autoRefreshTimer?.Dispose();
+    }
+
+    private async Task CargarPedidos(bool silencioso = false)
+    {
+        if (!silencioso) isLoading = true;
         try
         {
             var todas = await PromotionService.GetAllAsync() ?? new();
@@ -434,7 +454,7 @@
                 var nParts = (it.Nombre ?? "").Split('|');
                 if (nParts.Length < 2) continue;
                 string ticket = nParts[1].Trim();
-                decimal cant = nParts.Length >= 3 && decimal.TryParse(nParts[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cVal) ? cVal : 1m;
+                decimal cant = nParts.Length >= 3 && decimal.TryParse(nParts[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var cVal) ? Math.Round(cVal, 3, MidpointRounding.AwayFromZero) : 1m;
                 string unidad = nParts.Length >= 4 && !string.IsNullOrWhiteSpace(nParts[3]) ? nParts[3].Trim() : "Unidad";
 
                 // Formato Descripcion: Codigo||NombreProducto||PrecioUnitario
@@ -442,8 +462,8 @@
                 string codigo = dParts.Length >= 1 && !string.IsNullOrWhiteSpace(dParts[0]) ? dParts[0].Trim() : (it.Producto?.Codigo ?? "-");
                 string prodNombre = dParts.Length >= 2 && !string.IsNullOrWhiteSpace(dParts[1]) ? dParts[1].Trim() : (it.Producto?.Nombre ?? "Producto");
                 decimal precioUnit = dParts.Length >= 3 && decimal.TryParse(dParts[2], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var pVal)
-                    ? pVal
-                    : (cant > 0 ? Math.Round(it.Valor / cant, 2) : it.Valor);
+                    ? Math.Round(pVal, 3, MidpointRounding.AwayFromZero)
+                    : (cant > 0 ? Math.Round(it.Valor / cant, 3, MidpointRounding.AwayFromZero) : Math.Round(it.Valor, 3, MidpointRounding.AwayFromZero));
 
                 if (!itemsByTicket.TryGetValue(ticket, out var list))
                 {
@@ -451,24 +471,32 @@
                     itemsByTicket[ticket] = list;
                 }
 
-                list.Add(new PedidoMovilItemVm
+                // Evitar duplicar el mismo producto dentro del mismo ticket si hubo reintento de sync
+                if (!list.Any(x => x.IdProducto == (it.IdProducto ?? 0) && x.Nombre == prodNombre && x.Cantidad == cant))
                 {
-                    IdProducto = it.IdProducto ?? 0,
-                    Codigo = codigo,
-                    Nombre = prodNombre,
-                    UnidadMedida = unidad,
-                    Cantidad = cant,
-                    PrecioUnitario = precioUnit,
-                    Subtotal = it.Valor
-                });
+                    list.Add(new PedidoMovilItemVm
+                    {
+                        IdProducto = it.IdProducto ?? 0,
+                        Codigo = codigo,
+                        Nombre = prodNombre,
+                        UnidadMedida = unidad,
+                        Cantidad = cant,
+                        PrecioUnitario = precioUnit,
+                        Subtotal = Math.Round(it.Valor, 3, MidpointRounding.AwayFromZero)
+                    });
+                }
             }
 
             var listaResult = new List<PedidoMovilVm>();
-            foreach (var hdr in headers)
+            var ticketsAgregados = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var hdr in headers.OrderByDescending(h => h.IdPromocion))
             {
                 // Formato Nombre: [ORD_HDR]|TKT-123456|IdCliente|ModalidadCode|FechaIso
                 var nParts = (hdr.Nombre ?? "").Split('|');
                 string ticket = nParts.Length >= 2 ? nParts[1].Trim() : $"TKT-{hdr.IdPromocion:D6}";
+                if (!ticketsAgregados.Add(ticket)) continue;
+
                 int idCli = nParts.Length >= 3 && int.TryParse(nParts[2], out var cId) ? cId : 1;
                 string modCode = nParts.Length >= 4 ? nParts[3].Trim() : "DOMICILIO";
                 string modalidad = modCode.Equals("PICKUP", StringComparison.OrdinalIgnoreCase) || modCode.Contains("Retiro", StringComparison.OrdinalIgnoreCase)
@@ -503,23 +531,76 @@
                     ClienteNombre = cliNombre,
                     ClienteTelefono = cliTel,
                     DireccionEntrega = dirEntrega,
-                    Total = hdr.Valor,
+                    Total = Math.Round(hdr.Valor, 3, MidpointRounding.AwayFromZero),
                     Estado = estado,
                     FechaPedido = fechaPedido,
                     Items = orderItems ?? new List<PedidoMovilItemVm>()
                 });
             }
 
+            // Respaldo adicional: incluir cualquier venta móvil (TKT-*) en tabla Ventas que aún no tenga encabezado [ORD_HDR]
+            try
+            {
+                var ventasTodas = await PosService.GetVentasAsync(null) ?? new();
+                foreach (var v in ventasTodas.Where(v => v.NumComprobante != null && v.NumComprobante.StartsWith("TKT-", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (!ticketsAgregados.Add(v.NumComprobante)) continue;
+
+                    listaResult.Add(new PedidoMovilVm
+                    {
+                        IdPromoHeader = 0,
+                        RawHeader = new Promocion
+                        {
+                            Nombre = $"[ORD_HDR]|{v.NumComprobante}|{v.IdCliente}|DOMICILIO|{v.FechaHora:O}",
+                            Descripcion = $"{v.Cliente?.Nombre ?? "Cliente App Móvil"}||{v.Cliente?.Telefono ?? ""}||{v.Cliente?.Direccion ?? "Dirección registrada del cliente"}",
+                            TipoDescuento = "Pendiente",
+                            Valor = Math.Round(v.Total, 3, MidpointRounding.AwayFromZero),
+                            FechaInicio = v.FechaHora.AddDays(-1),
+                            FechaFin = v.FechaHora.AddDays(30),
+                            Estado = true
+                        },
+                        NumComprobante = v.NumComprobante,
+                        IdCliente = v.IdCliente,
+                        ModalidadEntrega = "Envío a Domicilio",
+                        ClienteNombre = v.Cliente?.Nombre ?? "Cliente App Móvil",
+                        ClienteTelefono = v.Cliente?.Telefono ?? "",
+                        DireccionEntrega = v.Cliente?.Direccion ?? "Dirección registrada del cliente",
+                        Total = Math.Round(v.Total, 3, MidpointRounding.AwayFromZero),
+                        Estado = "Pendiente",
+                        FechaPedido = v.FechaHora,
+                        Items = (v.DetalleVentas ?? new List<DetalleVenta>()).Select(d => new PedidoMovilItemVm
+                        {
+                            IdProducto = d.IdProducto,
+                            Codigo = d.Producto?.Codigo ?? $"P-{d.IdProducto}",
+                            Nombre = d.Producto?.Nombre ?? "Producto",
+                            UnidadMedida = d.Producto?.UnidadMedida ?? "Unidad",
+                            Cantidad = Math.Round(d.Cantidad, 3, MidpointRounding.AwayFromZero),
+                            PrecioUnitario = Math.Round(d.Precio, 3, MidpointRounding.AwayFromZero),
+                            Subtotal = Math.Round(d.Subtotal, 3, MidpointRounding.AwayFromZero)
+                        }).ToList()
+                    });
+                }
+            }
+            catch { }
+
             Pedidos = listaResult.OrderByDescending(x => x.FechaPedido).ToList();
+            if (PedidoSeleccionado != null)
+            {
+                var updated = Pedidos.FirstOrDefault(x => x.NumComprobante == PedidoSeleccionado.NumComprobante);
+                if (updated != null) PedidoSeleccionado = updated;
+            }
         }
         catch (Exception ex)
         {
-            FeedbackSuccess = false;
-            FeedbackMessage = $"Error al cargar pedidos móviles: {ex.Message}";
+            if (!silencioso)
+            {
+                FeedbackSuccess = false;
+                FeedbackMessage = $"Error al cargar pedidos móviles: {ex.Message}";
+            }
         }
         finally
         {
-            isLoading = false;
+            if (!silencioso) isLoading = false;
         }
     }
 

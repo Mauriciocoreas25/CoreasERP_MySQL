@@ -79,6 +79,19 @@ public static class MauiProgram
         // Crear y sincronizar carpeta fija C:\CoreasERP\uploads\products al iniciar el ejecutable
         ProductService.SincronizarCarpetaImagenesLocal();
 
-        return builder.Build();
+        var app = builder.Build();
+
+        // Asegurar esquema de 3 decimales (DECIMAL(12,3)) en segundo plano al iniciar
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var cfg = app.Services.GetRequiredService<IConnectionConfigService>();
+                await ConnectionConfigService.EnsureDecimalPrecisionSchemaAsync(cfg.GetConnectionString());
+            }
+            catch { }
+        });
+
+        return app;
     }
 }

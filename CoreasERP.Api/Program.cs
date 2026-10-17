@@ -106,6 +106,7 @@ using (var scope = app.Services.CreateScope())
         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
         await using var context = await dbFactory.CreateDbContextAsync();
         await DbInitializer.InitializeAsync(context);
+        await ConnectionConfigService.EnsureDecimalPrecisionSchemaAsync(connectionString);
     }
     catch (Exception ex)
     {
@@ -144,7 +145,8 @@ app.MapPost("/api/init", async (IDbContextFactory<AppDbContext> dbFactory) =>
     {
         await using var db = await dbFactory.CreateDbContextAsync();
         await DbInitializer.InitializeAsync(db);
-        return Results.Ok(new ApiResultDto { Success = true, Message = "Base de datos MySQL verificada e inicializada." });
+        await ConnectionConfigService.EnsureDecimalPrecisionSchemaAsync(connectionString);
+        return Results.Ok(new ApiResultDto { Success = true, Message = "Base de datos MySQL verificada e inicializada con precisión de 3 decimales." });
     }
     catch (Exception ex)
     {

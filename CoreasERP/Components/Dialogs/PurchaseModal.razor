@@ -108,7 +108,7 @@
                         <!-- Costo Unitario con Enter para agregar -->
                         <div class="col-6 col-md-3">
                             <label class="form-label small text-muted mb-1">Costo Unitario ($):</label>
-                            <input type="number" step="0.01" min="0" class="form-control form-control-sm text-end" 
+                            <input type="number" step="0.001" min="0" class="form-control form-control-sm text-end" 
                                    @bind="ItemPrecioCompra" 
                                    @onkeydown="HandlePrecioKeyDown" />
                         </div>
@@ -160,8 +160,8 @@
                                         <td class="font-monospace text-muted">@item.Codigo</td>
                                         <td class="fw-semibold text-dark">@item.Nombre</td>
                                         <td class="text-center fw-bold">@item.Cantidad.ToString("G29")</td>
-                                        <td class="text-end text-muted">$@item.PrecioCompra.ToString("F2")</td>
-                                        <td class="text-end fw-bold text-dark">$@item.Subtotal.ToString("F2")</td>
+                                        <td class="text-end text-muted">$@item.PrecioCompra.ToString("F3")</td>
+                                        <td class="text-end fw-bold text-dark">$@item.Subtotal.ToString("F3")</td>
                                         <td class="text-center">
                                             <button type="button" class="btn btn-sm text-danger p-0 border-0 bg-transparent" 
                                                     title="Quitar de la lista" @onclick="() => Items.Remove(item)">
@@ -175,7 +175,7 @@
                         <tfoot class="table-light">
                             <tr>
                                 <td colspan="4" class="text-end fw-bold fs-6">TOTAL COMPRA:</td>
-                                <td class="text-end fw-bold fs-6" style="color: #15803D;">$@TotalCompra.ToString("F2")</td>
+                                <td class="text-end fw-bold fs-6" style="color: #15803D;">$@TotalCompra.ToString("F3")</td>
                                 <td></td>
                             </tr>
                         </tfoot>

@@ -205,10 +205,10 @@
                                     </div>
                                 </td>
                                 <td class="text-end font-monospace text-secondary">
-                                    $@item.Precio.ToString("F2")
+                                    $@item.Precio.ToString("F3")
                                 </td>
                                 <td class="text-end font-monospace fw-bold text-dark">
-                                    $@item.Subtotal.ToString("F2")
+                                    $@item.Subtotal.ToString("F3")
                                 </td>
                                 <td class="text-center">
                                     <button type="button" class="btn btn-sm btn-link text-danger p-0 border-0 fs-6" 
@@ -268,7 +268,7 @@
                                                     style="font-size: 10px;"
                                                     @onclick="() => SeleccionarModoPrecio(false)"
                                                     title="Vender a precio individual/unitario">
-                                                <span>@(ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1 ? (ProductoEnEdicion.UnidadMedida == "Caja" ? "Caja" : "Empaque") : "Unitario"): $@ProductoEnEdicion.PrecioVenta.ToString("F2")</span>
+                                                <span>@(ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1 ? (ProductoEnEdicion.UnidadMedida == "Caja" ? "Caja" : "Empaque") : "Unitario"): $@ProductoEnEdicion.PrecioVenta.ToString("F3")</span>
                                                 @if (!EsModoGranelActivo)
                                                 {
                                                     <span class="badge bg-white text-primary px-1" style="font-size: 8px;">ACTIVO</span>
@@ -281,7 +281,7 @@
                                                     style="font-size: 10px;"
                                                     @onclick="() => SeleccionarModoPrecio(true)"
                                                     title="Presiona [ESPACIO] o clic para alternar a Menudeo/Granel">
-                                                <span>@(ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1 ? "Granel / Sobre" : "Granel"): $@ProductoEnEdicion.PrecioGranel.Value.ToString("F2")</span>
+                                                <span>@(ProductoEnEdicion.CantidadPorEmpaque.HasValue && ProductoEnEdicion.CantidadPorEmpaque.Value > 1 ? "Granel / Sobre" : "Granel"): $@ProductoEnEdicion.PrecioGranel.Value.ToString("F3")</span>
                                                 @if (EsModoGranelActivo)
                                                 {
                                                     <span class="badge bg-white text-success px-1" style="font-size: 8px;">ACTIVO</span>
@@ -319,7 +319,7 @@
                                     <div class="position-relative">
                                         <input type="text" 
                                                class="form-control form-control-sm bg-light text-end font-monospace text-secondary fw-bold" 
-                                               value="@($"${PrecioActualEdicion:F2}")" 
+                                               value="@($"${PrecioActualEdicion:F3}")" 
                                                readonly 
                                                disabled 
                                                style="cursor: not-allowed;" />
@@ -341,7 +341,7 @@
                                 </td>
                                 <td>
                                     <div class="fw-bold text-end text-primary font-monospace pe-2" style="line-height: 31px; font-size: 14px;">
-                                        @($"${((CantidadEnEdicion ?? 0m) * PrecioActualEdicion):F2}")
+                                        @($"${Math.Round((CantidadEnEdicion ?? 0m) * PrecioActualEdicion, 3, MidpointRounding.AwayFromZero):F3}")
                                     </div>
                                 </td>
                                 <td class="text-center">

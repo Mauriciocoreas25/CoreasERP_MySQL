@@ -233,12 +233,16 @@ public class CashRegisterService : ICashRegisterService
             string tipo = grupo.Key;
             bool esCotizacion = tipo.Equals("Cotización", StringComparison.OrdinalIgnoreCase);
             bool esAnticipo = tipo.Equals("Anticipo", StringComparison.OrdinalIgnoreCase);
+            bool esNotaCredito = tipo.Contains("N.Crédito", StringComparison.OrdinalIgnoreCase)
+                || tipo.Contains("N.Credito", StringComparison.OrdinalIgnoreCase)
+                || tipo.Contains("Nota de Crédito", StringComparison.OrdinalIgnoreCase)
+                || tipo.Contains("(05)", StringComparison.OrdinalIgnoreCase);
 
             var itemDoc = new ItemTipoDocumentoCorteDto
             {
                 TipoComprobante = tipo,
                 Cantidad = grupo.Count(),
-                MontoTotal = grupo.Sum(v => v.Total),
+                MontoTotal = Math.Round(grupo.Sum(v => v.Total), 3, MidpointRounding.AwayFromZero),
                 EsInformativo = esCotizacion
             };
 
@@ -251,6 +255,22 @@ public class CashRegisterService : ICashRegisterService
 
                 resumen.CantidadCotizaciones += itemDoc.Cantidad;
                 resumen.TotalCotizacionesMonto += itemDoc.MontoTotal;
+            }
+            else if (esNotaCredito)
+            {
+                // Nota de Crédito (05) representa devolución/descuento, no ingreso de venta
+                foreach (var v in grupo)
+                {
+                    if (v.MetodoPago == "Efectivo")
+                    {
+                        itemDoc.MontoEfectivo += v.Total;
+                        resumen.TotalDevolucionesEfectivo += v.Total;
+                    }
+                    else
+                    {
+                        itemDoc.MontoElectronico += v.Total;
+                    }
+                }
             }
             else if (esAnticipo)
             {
@@ -272,53 +292,54 @@ public class CashRegisterService : ICashRegisterService
                         anticipoElectronico += abonado;
                 }
 
-                itemDoc.MontoEfectivo = anticipoEfectivo;
-                itemDoc.MontoElectronico = anticipoElectronico;
-                itemDoc.MontoCreditoCXC = saldoCreditoCXC;
+                itemDoc.MontoEfectivo = Math.Round(anticipoEfectivo, 3, MidpointRounding.AwayFromZero);
+                itemDoc.MontoElectronico = Math.Round(anticipoElectronico, 3, MidpointRounding.AwayFromZero);
+                itemDoc.MontoCreditoCXC = Math.Round(saldoCreditoCXC, 3, MidpointRounding.AwayFromZero);
 
                 resumen.CantidadAnticipos += itemDoc.Cantidad;
-                resumen.AnticiposTotalPedidos += totalPedidos;
-                resumen.AnticiposCobradoEfectivo += anticipoEfectivo;
-                resumen.AnticiposCobradoElectronico += anticipoElectronico;
-                resumen.AnticiposSaldoCXC += saldoCreditoCXC;
+                resumen.AnticiposTotalPedidos += Math.Round(totalPedidos, 3, MidpointRounding.AwayFromZero);
+                resumen.AnticiposCobradoEfectivo += itemDoc.MontoEfectivo;
+                resumen.AnticiposCobradoElectronico += itemDoc.MontoElectronico;
+                resumen.AnticiposSaldoCXC += itemDoc.MontoCreditoCXC;
 
-                resumen.TotalVentasEfectivo += anticipoEfectivo;
+                resumen.TotalVentasEfectivo += itemDoc.MontoEfectivo;
                 if (anticipoElectronico > 0m)
                 {
                     // Asignar según método predominante
-                    resumen.TotalVentasTarjetas += anticipoElectronico;
+                    resumen.TotalVentasTarjetas += itemDoc.MontoElectronico;
                 }
-                resumen.TotalVentasCreditoCXC += saldoCreditoCXC;
+                resumen.TotalVentasCreditoCXC += itemDoc.MontoCreditoCXC;
             }
             else
             {
-                // Ventas regulares
+                // Ventas regulares (Ticket, Factura, CCF 03, Sujeto Excluido 14, etc.)
                 foreach (var v in grupo)
                 {
+                    decimal vTotal = Math.Round(v.Total, 3, MidpointRounding.AwayFromZero);
                     if (v.MetodoPago == "Efectivo")
                     {
-                        itemDoc.MontoEfectivo += v.Total;
-                        resumen.TotalVentasEfectivo += v.Total;
+                        itemDoc.MontoEfectivo += vTotal;
+                        resumen.TotalVentasEfectivo += vTotal;
                     }
                     else if (v.MetodoPago == "Tarjeta")
                     {
-                        itemDoc.MontoElectronico += v.Total;
-                        resumen.TotalVentasTarjetas += v.Total;
+                        itemDoc.MontoElectronico += vTotal;
+                        resumen.TotalVentasTarjetas += vTotal;
                     }
                     else if (v.MetodoPago == "Transferencia")
                     {
-                        itemDoc.MontoElectronico += v.Total;
-                        resumen.TotalVentasTransferencias += v.Total;
+                        itemDoc.MontoElectronico += vTotal;
+                        resumen.TotalVentasTransferencias += vTotal;
                     }
                     else if (v.MetodoPago == "Credito")
                     {
-                        itemDoc.MontoCreditoCXC += v.Total;
-                        resumen.TotalVentasCreditoCXC += v.Total;
+                        itemDoc.MontoCreditoCXC += vTotal;
+                        resumen.TotalVentasCreditoCXC += vTotal;
                     }
                     else
                     {
-                        itemDoc.MontoEfectivo += v.Total;
-                        resumen.TotalVentasEfectivo += v.Total;
+                        itemDoc.MontoEfectivo += vTotal;
+                        resumen.TotalVentasEfectivo += vTotal;
                     }
                 }
             }
@@ -328,19 +349,14 @@ public class CashRegisterService : ICashRegisterService
 
         // 2. Abonos a Cuentas por Cobrar recibidos en el período
         resumen.CantidadAbonos = abonos.Count;
-        resumen.TotalAbonosEfectivo = abonos.Where(a => a.MetodoPago == "Efectivo").Sum(a => a.Monto);
-        resumen.TotalAbonosElectronico = abonos.Where(a => a.MetodoPago != "Efectivo").Sum(a => a.Monto);
+        resumen.TotalAbonosEfectivo = Math.Round(abonos.Where(a => a.MetodoPago == "Efectivo").Sum(a => a.Monto), 3, MidpointRounding.AwayFromZero);
+        resumen.TotalAbonosElectronico = Math.Round(abonos.Where(a => a.MetodoPago != "Efectivo").Sum(a => a.Monto), 3, MidpointRounding.AwayFromZero);
 
         // 3. Movimientos de Caja
-        resumen.TotalIngresosExtras = movimientos.Where(m => m.Tipo == "Ingreso").Sum(m => m.Monto);
-        resumen.TotalRetiros = movimientos.Where(m => m.Tipo == "Retiro").Sum(m => m.Monto);
-        resumen.TotalGastos = movimientos.Where(m => m.Tipo == "Gasto").Sum(m => m.Monto);
-
-        // Devoluciones si existen notas de crédito en efectivo
-        var notasCreditoEfectivo = ventas
-            .Where(v => (v.TipoComprobante.Contains("Crédito") || v.TipoComprobante.Contains("Credito")) && v.MetodoPago == "Efectivo")
-            .Sum(v => v.Total);
-        resumen.TotalDevolucionesEfectivo = notasCreditoEfectivo;
+        resumen.TotalIngresosExtras = Math.Round(movimientos.Where(m => m.Tipo == "Ingreso").Sum(m => m.Monto), 3, MidpointRounding.AwayFromZero);
+        resumen.TotalRetiros = Math.Round(movimientos.Where(m => m.Tipo == "Retiro").Sum(m => m.Monto), 3, MidpointRounding.AwayFromZero);
+        resumen.TotalGastos = Math.Round(movimientos.Where(m => m.Tipo == "Gasto").Sum(m => m.Monto), 3, MidpointRounding.AwayFromZero);
+        resumen.TotalDevolucionesEfectivo = Math.Round(resumen.TotalDevolucionesEfectivo, 3, MidpointRounding.AwayFromZero);
 
         // 4. Conteo Físico
         if (desgloseFisico != null)

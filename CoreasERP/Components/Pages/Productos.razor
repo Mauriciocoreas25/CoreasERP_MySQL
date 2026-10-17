@@ -239,22 +239,22 @@
 
                                     <!-- Costo Compra -->
                                     <td class="text-end fw-semibold text-secondary">
-                                        <div>$@prod.PrecioCompra.ToString("F2")</div>
+                                        <div>$@prod.PrecioCompra.ToString("F3")</div>
                                         @if (prod.EsGranel && prod.CostoGranel.HasValue && prod.CostoGranel.Value > 0)
                                         {
                                             <div class="text-muted" style="font-size: 9.5px;" title="Costo unitario a granel">
-                                                Costo unit: $@prod.CostoGranel.Value.ToString("F4")
+                                                Costo unit: $@prod.CostoGranel.Value.ToString("F3")
                                             </div>
                                         }
                                     </td>
 
                                     <!-- Precio Venta -->
                                     <td class="text-end">
-                                        <div class="fw-bold text-dark" title="Precio Unitario / Individual">$@prod.PrecioVenta.ToString("F2")</div>
+                                        <div class="fw-bold text-dark" title="Precio Unitario / Individual">$@prod.PrecioVenta.ToString("F3")</div>
                                         @if (prod.PrecioGranel.HasValue && prod.PrecioGranel.Value > 0)
                                         {
                                             <div class="badge bg-success bg-opacity-25 text-success border border-success px-1" style="font-size: 9.5px;" title="Precio de venta a granel / caja">
-                                                @(prod.UnidadMedida == "Caja" ? "Caja" : (prod.UnidadMedida == "Sobre" ? "Sobre" : (prod.UnidadMedida == "Paquete" ? "Paq" : (prod.UnidadMedida == "Libra" ? "Libra" : "Granel")))): $@prod.PrecioGranel.Value.ToString("F2")
+                                                @(prod.UnidadMedida == "Caja" ? "Caja" : (prod.UnidadMedida == "Sobre" ? "Sobre" : (prod.UnidadMedida == "Paquete" ? "Paq" : (prod.UnidadMedida == "Libra" ? "Libra" : "Granel")))): $@prod.PrecioGranel.Value.ToString("F3")
                                             </div>
                                         }
                                         else
@@ -531,11 +531,11 @@ else
                                         <label class="form-label small fw-semibold">Precio Compra / Costo Base ($)</label>
                                         <div class="input-group input-group-sm">
                                             <span class="input-group-text">$</span>
-                                            <input type="number" step="0.01" min="0" class="form-control text-end"
+                                            <input type="number" step="0.001" min="0" class="form-control text-end"
                                                    @bind="ProductoEditando.PrecioCompra" 
                                                    @bind:after="OnPrecioCompraChanged" />
                                         </div>
-                                        <div class="text-muted" style="font-size: 10.5px;">Costo de adquisición de caja/empaque</div>
+                                        <div class="text-muted" style="font-size: 10.5px;">Costo de adquisición de caja/empaque (3 decimales)</div>
                                     </div>
 
                                     <!-- Precio Venta Unitario -->
@@ -543,10 +543,10 @@ else
                                         <label class="form-label small fw-semibold text-primary">Precio Venta Unitario ($) *</label>
                                         <div class="input-group input-group-sm">
                                             <span class="input-group-text bg-primary text-white fw-bold">$</span>
-                                            <input type="number" step="0.01" min="0" class="form-control text-end fw-bold text-primary"
+                                            <input type="number" step="0.001" min="0" class="form-control text-end fw-bold text-primary"
                                                    @bind="ProductoEditando.PrecioVenta" />
                                         </div>
-                                        <div class="text-muted" style="font-size: 10.5px;">Por sobre, pieza o unidad</div>
+                                        <div class="text-muted" style="font-size: 10.5px;">Por sobre, pieza o unidad (3 decimales)</div>
                                     </div>
 
                                     <!-- Margen Unitario Calculado -->
@@ -607,7 +607,7 @@ else
                                                             Piezas por Empaque / Caja
                                                         </label>
                                                         <div class="input-group input-group-sm">
-                                                            <input type="number" step="any" min="0.001" class="form-control text-center fw-bold"
+                                                            <input type="number" step="0.001" min="0.001" class="form-control text-center fw-bold"
                                                                    @bind="ProductoEditando.CantidadPorEmpaque" 
                                                                    @bind:after="OnCantidadPorEmpaqueChanged"
                                                                    placeholder="Ej: 24" />
@@ -623,12 +623,12 @@ else
                                                         </label>
                                                         <div class="input-group input-group-sm">
                                                             <span class="input-group-text">$</span>
-                                                            <input type="number" step="0.0001" min="0" class="form-control text-end fw-semibold text-secondary"
+                                                            <input type="number" step="0.001" min="0" class="form-control text-end fw-semibold text-secondary"
                                                                    @bind="ProductoEditando.CostoGranel" 
                                                                    @bind:after="OnCostoGranelChanged"
-                                                                   placeholder="@(ObtenerCostoGranelEfectivo().ToString("F4"))" />
+                                                                   placeholder="@(ObtenerCostoGranelEfectivo().ToString("F3"))" />
                                                         </div>
-                                                        <div class="text-muted" style="font-size: 10px;">Costo Compra ÷ Piezas empaque</div>
+                                                        <div class="text-muted" style="font-size: 10px;">Costo Compra ÷ Piezas empaque (3 dec.)</div>
                                                     </div>
 
                                                     <!-- Precio Venta a Granel -->
@@ -636,10 +636,10 @@ else
                                                         <label class="form-label small fw-semibold text-success">Precio Venta Granel ($) *</label>
                                                         <div class="input-group input-group-sm">
                                                             <span class="input-group-text bg-success text-white fw-bold">$</span>
-                                                            <input type="number" step="0.01" min="0" class="form-control text-end fw-bold text-success"
-                                                                   @bind="ProductoEditando.PrecioGranel" placeholder="0.00" />
+                                                            <input type="number" step="0.001" min="0" class="form-control text-end fw-bold text-success"
+                                                                   @bind="ProductoEditando.PrecioGranel" placeholder="0.000" />
                                                         </div>
-                                                        <div class="text-muted" style="font-size: 10px;">Precio de cada sobre o unidad</div>
+                                                        <div class="text-muted" style="font-size: 10px;">Precio de cada sobre o unidad (3 dec.)</div>
                                                     </div>
 
                                                     <!-- Resumen de Margen y Ganancia Real -->
@@ -647,12 +647,12 @@ else
                                                         <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border flex-wrap gap-2">
                                                             <div class="small">
                                                                 <span class="text-muted">Costo Fracción:</span>
-                                                                <strong class="text-dark ms-1">$@ObtenerCostoGranelEfectivo().ToString("F4")</strong>
+                                                                <strong class="text-dark ms-1">$@ObtenerCostoGranelEfectivo().ToString("F3")</strong>
                                                                 <span class="text-muted ms-3">Precio Venta:</span>
-                                                                <strong class="text-success ms-1">$@(ProductoEditando.PrecioGranel?.ToString("F2") ?? "0.00")</strong>
+                                                                <strong class="text-success ms-1">$@(ProductoEditando.PrecioGranel?.ToString("F3") ?? "0.000")</strong>
                                                                 <span class="text-muted ms-3">Ganancia por @ProductoEditando.UnidadMedida:</span>
                                                                 <strong class="@(CalcularGananciaGranel() >= 0 ? "text-success" : "text-danger") ms-1">
-                                                                    @(CalcularGananciaGranel() >= 0 ? "+" : "")$@CalcularGananciaGranel().ToString("F2")
+                                                                    @(CalcularGananciaGranel() >= 0 ? "+" : "")$@CalcularGananciaGranel().ToString("F3")
                                                                 </strong>
                                                             </div>
                                                             <div class="badge @(CalcularMargenGranel() >= 20 ? "bg-success" : (CalcularMargenGranel() > 0 ? "bg-warning text-dark" : "bg-danger")) px-3 py-1 fs-6">
@@ -663,7 +663,7 @@ else
 
                                                     <div class="col-12 mt-1">
                                                         <div class="alert alert-success bg-opacity-10 border-success py-1 px-2 small mb-0 d-flex align-items-center gap-2" style="font-size: 11px;">
-                                                            <span>En el POS podrás alternar entre el precio regular ($@ProductoEditando.PrecioVenta.ToString("F2")) y el precio de caja/granel ($@(ProductoEditando.PrecioGranel?.ToString("F2") ?? "0.00")) presionando la <strong>Barra Espaciadora</strong>.</span>
+                                                            <span>En el POS podrás alternar entre el precio regular ($@ProductoEditando.PrecioVenta.ToString("F3")) y el precio de caja/granel ($@(ProductoEditando.PrecioGranel?.ToString("F3") ?? "0.000")) presionando la <strong>Barra Espaciadora</strong>.</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -687,7 +687,7 @@ else
                         {
                             <div class="col-12 col-md-4">
                                 <label class="form-label small fw-semibold">Stock Inicial (@(ProductoEditando.UnidadMedida ?? "Unidad"))</label>
-                                <input type="number" step="@(ProductoEditando.EsGranel ? "any" : "1")" min="0" class="form-control form-control-sm"
+                                <input type="number" step="@(ProductoEditando.EsGranel ? "0.001" : "1")" min="0" class="form-control form-control-sm"
                                        @bind="ProductoEditando.Stock" />
                                 <div class="text-muted" style="font-size: 10.5px;">Existencias físicas iniciales</div>
                             </div>
@@ -695,13 +695,13 @@ else
 
                         <div class="col-12 col-md-@(ProductoEditando.IdProducto == 0 ? "4" : "6")">
                             <label class="form-label small fw-semibold">Stock Mínimo Alerta *</label>
-                            <input type="number" step="@(ProductoEditando.EsGranel ? "any" : "1")" class="form-control form-control-sm" min="1"
+                            <input type="number" step="@(ProductoEditando.EsGranel ? "0.001" : "1")" class="form-control form-control-sm" min="1"
                                    @bind="ProductoEditando.StockMinimo" />
                         </div>
 
                         <div class="col-12 col-md-@(ProductoEditando.IdProducto == 0 ? "4" : "6")">
                             <label class="form-label small fw-semibold">Margen Excepción (%)</label>
-                            <input type="number" step="0.01" class="form-control form-control-sm" placeholder="Ej: 25.00 (opcional)"
+                            <input type="number" step="0.001" class="form-control form-control-sm" placeholder="Ej: 25.000 (opcional)"
                                    @bind="ProductoEditando.MargenExcepcion" />
                         </div>
 
@@ -1524,10 +1524,10 @@ else
     {
         if (ProductoEditando == null) return 0m;
         if (ProductoEditando.CostoGranel.HasValue && ProductoEditando.CostoGranel.Value > 0)
-            return ProductoEditando.CostoGranel.Value;
+            return Math.Round(ProductoEditando.CostoGranel.Value, 3, MidpointRounding.AwayFromZero);
         if (ProductoEditando.CantidadPorEmpaque.HasValue && ProductoEditando.CantidadPorEmpaque.Value > 0 && ProductoEditando.PrecioCompra > 0)
-            return Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CantidadPorEmpaque.Value, 4);
-        return ProductoEditando.PrecioCompra;
+            return Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CantidadPorEmpaque.Value, 3, MidpointRounding.AwayFromZero);
+        return Math.Round(ProductoEditando.PrecioCompra, 3, MidpointRounding.AwayFromZero);
     }
 
     private decimal CalcularMargenGranel()
@@ -1542,14 +1542,14 @@ else
     {
         if (ProductoEditando == null || !ProductoEditando.PrecioGranel.HasValue) return 0m;
         decimal costoG = ObtenerCostoGranelEfectivo();
-        return ProductoEditando.PrecioGranel.Value - costoG;
+        return Math.Round(ProductoEditando.PrecioGranel.Value - costoG, 3, MidpointRounding.AwayFromZero);
     }
 
     private void OnPrecioCompraChanged()
     {
         if (ProductoEditando != null && ProductoEditando.PrecioCompra > 0 && ProductoEditando.CantidadPorEmpaque.HasValue && ProductoEditando.CantidadPorEmpaque.Value > 1)
         {
-            ProductoEditando.CostoGranel = Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CantidadPorEmpaque.Value, 4);
+            ProductoEditando.CostoGranel = Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CantidadPorEmpaque.Value, 3, MidpointRounding.AwayFromZero);
             StateHasChanged();
         }
     }
@@ -1558,7 +1558,7 @@ else
     {
         if (ProductoEditando != null && ProductoEditando.PrecioCompra > 0 && ProductoEditando.CantidadPorEmpaque.HasValue && ProductoEditando.CantidadPorEmpaque.Value > 0)
         {
-            ProductoEditando.CostoGranel = Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CantidadPorEmpaque.Value, 4);
+            ProductoEditando.CostoGranel = Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CantidadPorEmpaque.Value, 3, MidpointRounding.AwayFromZero);
             StateHasChanged();
         }
     }
@@ -1567,7 +1567,7 @@ else
     {
         if (ProductoEditando != null && ProductoEditando.PrecioCompra > 0 && ProductoEditando.CostoGranel.HasValue && ProductoEditando.CostoGranel.Value > 0)
         {
-            decimal cantCalc = Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CostoGranel.Value, 2);
+            decimal cantCalc = Math.Round(ProductoEditando.PrecioCompra / ProductoEditando.CostoGranel.Value, 3, MidpointRounding.AwayFromZero);
             if (cantCalc > 0 && (!ProductoEditando.CantidadPorEmpaque.HasValue || ProductoEditando.CantidadPorEmpaque.Value <= 1))
             {
                 ProductoEditando.CantidadPorEmpaque = cantCalc;
