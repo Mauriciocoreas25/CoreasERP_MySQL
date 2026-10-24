@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'models/erp_models.dart';
 import 'services/api_service.dart';
@@ -10,7 +9,10 @@ import 'screens/login_screen.dart';
 import 'screens/product_detail_screen.dart';
 import 'screens/cart_checkout_screen.dart';
 import 'screens/modals_and_forms.dart';
-import 'screens/order_ticket_screen.dart';
+import 'screens/categories_screen.dart';
+import 'screens/offers_screen.dart';
+import 'screens/orders_history_screen.dart';
+import 'screens/profile_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -83,7 +85,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
   bool _isLoggedIn = false;
   bool _checkingSession = true;
 
-  int _currentTab = 0; // 0: Inicio, 1: Categorías, 2: Servicios, 3: Mi Cuenta
+  int _currentTab = 0; // 0: Inicio, 1: Categorías, 2: Ofertas, 3: Mis Pedidos, 4: Perfil
   int _productFilterTab = 0; // 0: En Promoción, 1: Más Vendidos, 2: Nuevos
   int? _selectedCategoryId;
   bool _preferPickupMode = false; // false: Envío a Domicilio, true: Retiro en Tienda (Pick Up)
@@ -323,19 +325,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
     );
   }
 
-  void _openOrderTicketDetail(VentaHistorialModel venta) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => OrderTicketScreen(
-          venta: venta,
-          customerProfile: _customerProfile,
-          primaryColor: widget.primaryColor,
-        ),
-      ),
-    );
-  }
-
   void _openProductDetail(ProductoModel p) {
     Navigator.push(
       context,
@@ -453,15 +442,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
     }
 
     return list;
-  }
-
-  String _formatShortDate(DateTime dt) {
-    final d = dt.day.toString().padLeft(2, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final y = dt.year.toString();
-    final h = dt.hour.toString().padLeft(2, '0');
-    final min = dt.minute.toString().padLeft(2, '0');
-    return '$d/$m/$y $h:$min';
   }
 
   @override
@@ -601,9 +581,47 @@ class _MainShellScreenState extends State<MainShellScreen> {
         index: _currentTab,
         children: [
           _buildHomeTab(c),
-          _buildCategoriesTab(c),
-          _buildServicesTab(c),
-          _buildAccountTab(c),
+          CategoriesScreen(
+            categorias: _categorias,
+            primaryColor: c,
+            totalCartCount: _totalCartCount,
+            onOpenCart: _openCartCheckout,
+            onSelectCategory: (cat) {
+              setState(() {
+                _selectedCategoryId = cat.idCategoria;
+                _currentTab = 0;
+              });
+            },
+            onRefresh: _loadCatalogData,
+          ),
+          OffersScreen(
+            productos: _productos,
+            categorias: _categorias,
+            promociones: _promociones,
+            primaryColor: c,
+            totalCartCount: _totalCartCount,
+            onOpenCart: _openCartCheckout,
+            onAddToCart: _addToCart,
+            onOpenProductDetail: _openProductDetail,
+            onRefresh: _loadCatalogData,
+          ),
+          OrdersHistoryScreen(
+            historialPedidos: _historialPedidos,
+            customerProfile: _customerProfile,
+            primaryColor: c,
+            onGoToCatalog: () => setState(() => _currentTab = 0),
+            onAddToCart: _addToCart,
+            onRefresh: _loadCatalogData,
+          ),
+          ProfileScreen(
+            customerProfile: _customerProfile,
+            currentAddress: _currentAddress,
+            historialPedidos: _historialPedidos,
+            primaryColor: c,
+            onEditProfile: _openCustomerHelpForm,
+            onOpenAddressPicker: _openGpsAddressModal,
+            onLogout: _logout,
+          ),
         ],
       ),
 
@@ -611,7 +629,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
         selectedIndex: _currentTab,
         onDestinationSelected: (idx) {
           setState(() => _currentTab = idx);
-          if (idx == 2 || idx == 3) {
+          if (idx == 1 || idx == 2 || idx == 3 || idx == 4) {
             _loadCatalogData();
           }
         },
@@ -630,14 +648,19 @@ class _MainShellScreenState extends State<MainShellScreen> {
             label: 'Categorías',
           ),
           NavigationDestination(
-            icon: const Icon(Icons.storefront_outlined),
-            selectedIcon: Icon(Icons.storefront_rounded, color: c),
-            label: 'Servicios',
+            icon: const Icon(Icons.local_offer_outlined),
+            selectedIcon: Icon(Icons.local_offer_rounded, color: c),
+            label: 'Ofertas',
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long_rounded, color: c),
+            label: 'Mis Pedidos',
           ),
           NavigationDestination(
             icon: const Icon(Icons.person_outline_rounded),
             selectedIcon: Icon(Icons.person_rounded, color: c),
-            label: 'Mi Cuenta',
+            label: 'Perfil',
           ),
         ],
       ),
@@ -1445,627 +1468,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
       color: c.withValues(alpha: 0.12),
       child: Center(
         child: Icon(Icons.category_rounded, color: c, size: 24),
-      ),
-    );
-  }
-
-  // ===========================================================================
-  // PESTAÑA 2: CATEGORÍAS
-  // ===========================================================================
-  Widget _buildCategoriesTab(Color c) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text(
-          'Explorar por Categorías',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Selecciona una categoría para ver todos sus productos disponibles.',
-          style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-        ),
-        const SizedBox(height: 16),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _categorias.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 1.25,
-          ),
-          itemBuilder: (ctx, idx) {
-            final cat = _categorias[idx];
-            return GestureDetector(
-              onTap: () {
-                setState(() {
-                  _selectedCategoryId = cat.idCategoria;
-                  _currentTab = 0;
-                });
-              },
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: SizedBox(
-                        width: 64,
-                        height: 64,
-                        child: (cat.imagenUrl != null && cat.imagenUrl!.isNotEmpty)
-                            ? Image.network(
-                                cat.imagenUrl!,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) =>
-                                    _buildCategoryDefaultAvatar(cat.nombre, c),
-                              )
-                            : _buildCategoryDefaultAvatar(cat.nombre, c),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Text(
-                        cat.nombre,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  // ===========================================================================
-  // PESTAÑA 3: SERVICIOS
-  // ===========================================================================
-  Widget _buildServicesTab(Color c) {
-    final services = [
-      (
-        Icons.storefront_rounded,
-        'Retiro en Tienda (Pick Up)',
-        'Haz tu pedido desde el celular y pasa a recogerlo en nuestra sucursal sin hacer filas. Presenta tu Ticket de Compra digital en caja.',
-        _preferPickupMode ? 'Ir al Catálogo (Modo Pick Up Activo)' : 'Activar Modo Retiro en Tienda',
-        () {
-          setState(() {
-            _preferPickupMode = true;
-            _currentTab = 0;
-          });
-          _saveLocalPrefs();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Modalidad Retiro en Tienda (Pick Up) activada.'),
-              backgroundColor: c,
-            ),
-          );
-        },
-      ),
-      (
-        Icons.local_shipping_outlined,
-        'Entrega a Domicilio con Mapa GPS',
-        'Indica tu ubicación exacta en el mapa para que llevemos tu pedido directamente hasta tu puerta.',
-        'Configurar mi ubicación',
-        () {
-          setState(() => _preferPickupMode = false);
-          _saveLocalPrefs();
-          _openGpsAddressModal();
-        },
-      ),
-      (
-        Icons.scale_rounded,
-        'Compras por Unidad y a Granel',
-        'Adquiere tus productos por empaque cerrado o en la fracción exacta que necesites para tu hogar o negocio.',
-        'Ver productos',
-        () => setState(() => _currentTab = 0),
-      ),
-      (
-        Icons.qr_code_scanner_rounded,
-        'Escáner Rápido de Productos',
-        'Escanea el código de barras de cualquier producto para consultar su precio y agregarlo al carrito.',
-        'Abrir Escáner',
-        _openBarcodeScanner,
-      ),
-      (
-        Icons.support_agent_rounded,
-        'Atención Personalizada al Cliente',
-        '¿Buscas un pedido especial o tienes dudas? Envíanos tu solicitud y te atenderemos con gusto.',
-        'Solicitar Atención',
-        _openCustomerHelpForm,
-      ),
-    ];
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text(
-          'Nuestros Servicios',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Todo pensado para que realices tus compras de forma rápida y cómoda.',
-          style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-        ),
-        const SizedBox(height: 16),
-
-        ...services.map((srv) {
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: c.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(srv.$1, color: c, size: 24),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        srv.$2,
-                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  srv.$3,
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF475569), height: 1.4),
-                ),
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: srv.$5,
-                    icon: Icon(Icons.arrow_forward_rounded, size: 17, color: c),
-                    label: Text(
-                      srv.$4,
-                      style: TextStyle(color: c, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
-  // ===========================================================================
-  // PESTAÑA 4: MI CUENTA (Perfil, Pedidos y Tickets, Direcciones, Pago)
-  // ===========================================================================
-  Widget _buildAccountTab(Color c) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // 1. Perfil del Usuario Personalizable + Cerrar Sesión
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundColor: c.withValues(alpha: 0.15),
-                    child: Text(
-                      _customerProfile.nombre.isNotEmpty
-                          ? _customerProfile.nombre[0].toUpperCase()
-                          : 'C',
-                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: c),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _customerProfile.nombre,
-                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-                        ),
-                        if (_customerProfile.telefono.isNotEmpty)
-                          Text(
-                            'Tel: ${_customerProfile.telefono}',
-                            style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
-                          ),
-                        if (_customerProfile.email.isNotEmpty)
-                          Text(
-                            _customerProfile.email,
-                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                          ),
-                      ],
-                    ),
-                  ),
-                  IconButton.filledTonal(
-                    tooltip: 'Editar Perfil',
-                    onPressed: _openCustomerHelpForm,
-                    icon: Icon(Icons.edit_outlined, color: c, size: 20),
-                  ),
-                ],
-              ),
-              const Divider(height: 24),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: _logout,
-                  icon: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 18),
-                  label: const Text(
-                    'Cerrar Sesión',
-                    style: TextStyle(
-                      color: Color(0xFFDC2626),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-
-        // 2. Historial y Detalle de Mis Pedidos (con acceso al Ticket de Compra)
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.shopping_bag_outlined, color: c, size: 20),
-                const SizedBox(width: 8),
-                const Text(
-                  'Mis Pedidos y Detalle de Compras',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                ),
-              ],
-            ),
-            IconButton(
-              tooltip: 'Actualizar Pedidos',
-              onPressed: _loadCatalogData,
-              icon: Icon(Icons.refresh_rounded, color: c),
-            ),
-          ],
-        ),
-        if (_historialPedidos.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: const Center(
-              child: Text(
-                'Aún no tienes pedidos registrados. Agrega tus productos al carrito y realiza tu primer pedido.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
-              ),
-            ),
-          )
-        else
-          ..._historialPedidos.take(15).map((v) {
-            final isPickup = v.esRetiroEnTienda;
-            return InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () => _openOrderTicketDetail(v),
-              child: Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Ticket #${v.numComprobante}',
-                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${_formatShortDate(v.fechaHora)} • Pago: Efectivo',
-                              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                            ),
-                          ],
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              '\$${v.total.toStringAsFixed(2)}',
-                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5, color: c),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: v.estado == 'Completada'
-                                    ? const Color(0xFFDCFCE7)
-                                    : const Color(0xFFFEE2E2),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                v.estado,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: v.estado == 'Completada'
-                                      ? const Color(0xFF15803D)
-                                      : const Color(0xFFB91C1C),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                isPickup
-                                    ? Icons.storefront_outlined
-                                    : Icons.local_shipping_outlined,
-                                size: 14,
-                                color: const Color(0xFF334155),
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                isPickup ? 'Retiro en Tienda (Pick Up)' : 'Envío a Domicilio',
-                                style: const TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF334155),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            Text(
-                              'Ver Detalle y Ticket',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w800,
-                                color: c,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Icon(Icons.arrow_forward_ios_rounded, size: 13, color: c),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }),
-
-        const SizedBox(height: 18),
-
-        // 4. Direcciones Guardadas
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.location_on_outlined, color: c, size: 20),
-                const SizedBox(width: 8),
-                const Text(
-                  'Mis Direcciones de Entrega',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                ),
-              ],
-            ),
-            TextButton.icon(
-              onPressed: _openGpsAddressModal,
-              icon: Icon(Icons.add_location_alt_outlined, size: 17, color: c),
-              label: Text('Agregar / Editar', style: TextStyle(color: c, fontWeight: FontWeight.w800)),
-            ),
-          ],
-        ),
-        if (_savedAddresses.isEmpty && _currentAddress.referencia.trim().isEmpty)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: const Text(
-              'Aún no has guardado una dirección de entrega. Toca en "Agregar / Editar" para configurar tu ubicación.',
-              style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
-            ),
-          )
-        else
-          ...(_savedAddresses.isNotEmpty ? _savedAddresses : [_currentAddress]).map((addr) {
-            final isCurrent = addr.etiqueta == _currentAddress.etiqueta;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isCurrent ? c : const Color(0xFFE2E8F0),
-                  width: isCurrent ? 1.8 : 1,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.location_on_rounded, color: isCurrent ? c : const Color(0xFF94A3B8)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          addr.etiqueta,
-                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-                        ),
-                        Text(
-                          addr.referencia.isNotEmpty
-                              ? addr.referencia
-                              : 'Ubicación seleccionada en mapa',
-                          style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Ver en Google Maps',
-                    onPressed: () async {
-                      final uri = Uri.parse(
-                        'https://www.google.com/maps/search/?api=1&query=${addr.latitud},${addr.longitud}',
-                      );
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    },
-                    icon: Icon(Icons.map_outlined, color: c, size: 20),
-                  ),
-                ],
-              ),
-            );
-          }),
-
-        const SizedBox(height: 14),
-
-        // 5. Métodos de Pago (Solo Efectivo habilitado, los demás bloqueados)
-        Row(
-          children: [
-            Icon(Icons.payments_outlined, color: c, size: 20),
-            const SizedBox(width: 8),
-            const Text(
-              'Métodos de Pago',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: c.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: c),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.payments_outlined, color: c, size: 20),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Efectivo (Contra entrega o en tienda)',
-                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
-                      ),
-                    ),
-                    Icon(Icons.check_circle_rounded, color: c, size: 20),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              _buildLockedMethodRow(Icons.credit_card_outlined, 'Tarjeta de Débito / Crédito'),
-              const SizedBox(height: 6),
-              _buildLockedMethodRow(Icons.account_balance_outlined, 'Transferencia Bancaria'),
-              const SizedBox(height: 6),
-              _buildLockedMethodRow(Icons.handshake_outlined, 'Crédito Comercial'),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLockedMethodRow(IconData icon, String title) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: const Color(0xFF94A3B8), size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: Color(0xFF94A3B8),
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-          ),
-          const Icon(Icons.lock_outline_rounded, size: 14, color: Color(0xFF94A3B8)),
-          const SizedBox(width: 4),
-          const Text(
-            'Próximamente',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF94A3B8),
-            ),
-          ),
-        ],
       ),
     );
   }

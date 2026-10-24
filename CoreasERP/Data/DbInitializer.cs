@@ -89,19 +89,7 @@ public static class DbInitializer
             await context.SaveChangesAsync();
         }
 
-        // 6. Categoría inicial base
-        if (!await context.Categorias.AnyAsync())
-        {
-            var catGeneral = new Categoria
-            {
-                Nombre = "General",
-                Descripcion = "Categoría General",
-                Estado = true,
-                Icono = "fa-box"
-            };
-            await context.Categorias.AddAsync(catGeneral);
-            await context.SaveChangesAsync();
-        }
+        // 6. Categorias: No sembrar categorías quemadas; el usuario subirá su catálogo real.
 
         // 7. Configuración Inicial del Negocio
         if (!await context.ConfiguracionNegocio.AnyAsync())
