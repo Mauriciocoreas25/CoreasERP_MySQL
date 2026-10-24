@@ -42,6 +42,7 @@ public class ProductService : IProductService
         SincronizarCarpetaImagenesLocal();
         await using var context = await _contextFactory.CreateDbContextAsync();
         var query = context.Productos
+            .AsNoTracking()
             .Include(p => p.Categoria)
             .AsQueryable();
 

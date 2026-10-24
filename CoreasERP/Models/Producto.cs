@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json.Serialization;
 
 namespace CoreasERP.Models;
 
@@ -25,8 +26,14 @@ public class Producto
     public DateTime FechaCreacion { get; set; } = DateTime.Now;
 
     public Categoria? Categoria { get; set; }
+
+    [JsonIgnore]
     public ICollection<DetalleVenta> DetalleVentas { get; set; } = new List<DetalleVenta>();
+
+    [JsonIgnore]
     public ICollection<ProductoMaterial> Materiales { get; set; } = new List<ProductoMaterial>();
+
+    [JsonIgnore]
     public ICollection<AjusteInventario> AjustesInventario { get; set; } = new List<AjusteInventario>();
 
     [NotMapped]

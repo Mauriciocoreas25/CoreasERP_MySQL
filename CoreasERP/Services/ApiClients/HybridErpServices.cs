@@ -20,7 +20,7 @@ internal static class ApiHttpHelper
         return new HttpClient
         {
             BaseAddress = new Uri(baseUrl),
-            Timeout = TimeSpan.FromSeconds(25)
+            Timeout = TimeSpan.FromSeconds(60)
         };
     }
 }

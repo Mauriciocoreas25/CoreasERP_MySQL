@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace CoreasERP.Models;
 
 public class Categoria
@@ -9,5 +11,6 @@ public class Categoria
     public string? ImagenUrl { get; set; }
     public bool Estado { get; set; } = true;
 
+    [JsonIgnore]
     public ICollection<Producto> Productos { get; set; } = new List<Producto>();
 }
