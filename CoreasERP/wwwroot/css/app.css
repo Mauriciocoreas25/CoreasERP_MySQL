@@ -896,3 +896,71 @@ body {
     display: none !important;
     visibility: hidden !important;
 }
+
+/* ========================================================================== */
+/* BADGES Y COMPONENTES SOFT (VERDE MENTA, ÍNDIGO, ÁMBAR, ROSA, CIELO)         */
+/* ========================================================================== */
+.badge-soft-mint {
+    background-color: #d1fae5 !important;
+    color: #065f46 !important;
+    border: 1px solid #a7f3d0 !important;
+}
+
+.badge-soft-indigo {
+    background-color: #e0e7ff !important;
+    color: #3730a3 !important;
+    border: 1px solid #c7d2fe !important;
+}
+
+.badge-soft-amber {
+    background-color: #fef3c7 !important;
+    color: #92400e !important;
+    border: 1px solid #fde68a !important;
+}
+
+.badge-soft-rose {
+    background-color: #fee2e2 !important;
+    color: #991b1b !important;
+    border: 1px solid #fecaca !important;
+}
+
+.badge-soft-sky {
+    background-color: #e0f2fe !important;
+    color: #0369a1 !important;
+    border: 1px solid #bae6fd !important;
+}
+
+/* Override universal para solucionar las franjas sólidas ilegibles con bg-opacity-10 */
+.bg-success.bg-opacity-10 {
+    background-color: #d1fae5 !important;
+    color: #065f46 !important;
+}
+.bg-primary.bg-opacity-10 {
+    background-color: #e0e7ff !important;
+    color: #3730a3 !important;
+}
+.bg-warning.bg-opacity-10 {
+    background-color: #fef3c7 !important;
+    color: #92400e !important;
+}
+.bg-danger.bg-opacity-10 {
+    background-color: #fee2e2 !important;
+    color: #991b1b !important;
+}
+.bg-info.bg-opacity-10 {
+    background-color: #e0f2fe !important;
+    color: #0369a1 !important;
+}
+
+.badge.border-success,
+.bg-opacity-10.border-success,
+.border-success.border-opacity-25 {
+    border-color: #a7f3d0 !important;
+}
+
+.badge.border-primary,
+.bg-opacity-10.border-primary,
+.border-primary.border-opacity-25 {
+    border-color: #c7d2fe !important;
+}
+

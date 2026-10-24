@@ -265,7 +265,7 @@
 
                                     <!-- Stock Físico -->
                                     <td class="text-center">
-                                        <span class="badge px-2 py-1 @(prod.Stock <= 0 ? "bg-danger bg-opacity-10 text-danger border border-danger" : (prod.Stock <= prod.StockMinimo ? "bg-warning bg-opacity-10 text-warning border border-warning" : "bg-success bg-opacity-10 text-success border border-success"))"
+                                        <span class="badge px-2 py-1 @(prod.Stock <= 0 ? "badge-soft-rose" : (prod.Stock <= prod.StockMinimo ? "badge-soft-amber" : "badge-soft-mint"))"
                                               style="font-size: 12px; font-weight: 700;">
                                             @prod.Stock.ToString("G29") @(string.Equals(prod.UnidadMedida, "Libra", StringComparison.OrdinalIgnoreCase) ? "lb" : (string.Equals(prod.UnidadMedida, "Kilogramo", StringComparison.OrdinalIgnoreCase) ? "kg" : (string.Equals(prod.UnidadMedida, "Gramo", StringComparison.OrdinalIgnoreCase) ? "g" : "uds")))
                                         </span>
@@ -577,7 +577,7 @@ else
                                         <div class="col-12">
                                             <div class="p-3 rounded-3 bg-white border shadow-sm">
                                                 <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom">
-                                                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 fw-bold">
+                                                    <span class="badge badge-soft-mint px-2 py-1 fw-bold">
                                                         CONFIGURACIÓN DE VENTA FRACCIONADA / A GRANEL
                                                     </span>
                                                     <span class="text-muted small" style="font-size: 11px;">

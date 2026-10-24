@@ -32,7 +32,11 @@
 
     <!-- 2. Subcabecera: Selector de Cliente, Usuario y Botones de Salida -->
     <div class="pos-subheader-bar">
-        <div class="d-flex align-items-center gap-2" style="max-width: 480px; width: 100%;">
+        <div class="d-flex align-items-center gap-3" style="max-width: 580px; width: 100%;">
+            <div class="d-flex align-items-center gap-2 me-1">
+                <img src="images/logo-icon.png" alt="CoreasERP" style="height: 28px; width: auto; object-fit: contain;" />
+                <span class="fw-bold fs-6 text-dark d-none d-lg-inline">CoreasERP</span>
+            </div>
             <label class="small fw-bold text-secondary mb-0 text-nowrap">Cliente:</label>
             <div class="input-group input-group-sm">
                 <select class="form-select fw-semibold" @bind="SelectedClienteId" style="font-size: 13px;">
@@ -84,7 +88,7 @@
 
             @if (CorteActivo != null)
             {
-                <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1 fw-semibold d-none d-md-inline-block" style="font-size: 11px;" title="Turno de caja abierto">
+                <span class="badge badge-soft-mint px-2 py-1 fw-semibold d-none d-md-inline-block" style="font-size: 11px;" title="Turno de caja abierto">
                     ● Turno #@CorteActivo.IdCorte
                 </span>
             }
