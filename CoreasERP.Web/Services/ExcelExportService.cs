@@ -1041,6 +1041,49 @@ public class ExcelExportService : IExcelExportService
             return result;
         }
 
+        // OPTIMIZACIÓN DE ALTO RENDIMIENTO:
+        // Pre-cargar todos los productos existentes en un diccionario en memoria para evitar consultas N+1 por cada fila
+        var productosExistentes = await context.Productos.ToListAsync();
+        var dictProductos = new Dictionary<string, Producto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in productosExistentes)
+        {
+            if (!string.IsNullOrWhiteSpace(p.Codigo))
+            {
+                dictProductos[p.Codigo.Trim()] = p;
+            }
+        }
+
+        // Pre-detectar y crear categorías faltantes en lote
+        var nuevasCategorias = new Dictionary<string, Categoria>(StringComparer.OrdinalIgnoreCase);
+        for (int r = startRow; r < matriz.Count; r++)
+        {
+            var fila = matriz[r];
+            if (fila.Count == 0) continue;
+            string catNom = (colCategoria >= 0 && colCategoria < fila.Count) ? fila[colCategoria].Trim() : "General";
+            if (string.IsNullOrWhiteSpace(catNom)) catNom = "General";
+            string keyCat = catNom.ToLower();
+            if (!dictCategorias.ContainsKey(keyCat) && !nuevasCategorias.ContainsKey(keyCat))
+            {
+                nuevasCategorias[keyCat] = new Categoria
+                {
+                    Nombre = catNom,
+                    Descripcion = $"Categoría {catNom}",
+                    Icono = "fa-box",
+                    Estado = true
+                };
+            }
+        }
+
+        if (nuevasCategorias.Count > 0)
+        {
+            await context.Categorias.AddRangeAsync(nuevasCategorias.Values);
+            await context.SaveChangesAsync();
+            foreach (var kvp in nuevasCategorias)
+            {
+                dictCategorias[kvp.Key] = kvp.Value;
+            }
+        }
+
         for (int r = startRow; r < matriz.Count; r++)
         {
             var fila = matriz[r];
@@ -1081,20 +1124,11 @@ public class ExcelExportService : IExcelExportService
 
             result.TotalProcesados++;
 
-            // Buscar o crear categoría
+            // Asignar categoría pre-cargada
             string keyCat = categoriaNombre.ToLower();
             if (!dictCategorias.TryGetValue(keyCat, out var cat))
             {
-                cat = new Categoria
-                {
-                    Nombre = categoriaNombre,
-                    Descripcion = $"Categoría {categoriaNombre}",
-                    Icono = "fa-box",
-                    Estado = true
-                };
-                await context.Categorias.AddAsync(cat);
-                await context.SaveChangesAsync();
-                dictCategorias[keyCat] = cat;
+                cat = dictCategorias.Values.FirstOrDefault() ?? new Categoria { IdCategoria = 1, Nombre = "General" };
             }
 
             decimal cantEmpaque = 1.00m;
@@ -1129,9 +1163,8 @@ public class ExcelExportService : IExcelExportService
 
             bool esGranel = (precioGranel.HasValue && precioGranel.Value > 0) || cantEmpaque > 1;
 
-            // Buscar si el producto ya existe por código
-            var prod = await context.Productos.FirstOrDefaultAsync(p => p.Codigo == codigo);
-            if (prod != null)
+            // Búsqueda instantánea en memoria O(1)
+            if (dictProductos.TryGetValue(codigo, out var prod))
             {
                 prod.Nombre = nombre;
                 prod.IdCategoria = cat.IdCategoria;
@@ -1181,6 +1214,7 @@ public class ExcelExportService : IExcelExportService
                     FechaCreacion = DateTime.Now
                 };
                 await context.Productos.AddAsync(prod);
+                dictProductos[codigo] = prod;
                 result.TotalInsertados++;
             }
         }

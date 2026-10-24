@@ -1066,6 +1066,52 @@ public class ExcelExportService : IExcelExportService
             }
         }
 
+        // OPTIMIZACIÓN DE ALTO RENDIMIENTO:
+        // Pre-cargar todos los productos existentes en un diccionario en memoria para evitar consultas N+1 por cada fila
+        var productosExistentes = await context.Productos.ToListAsync();
+        var dictProductos = new Dictionary<string, Producto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var p in productosExistentes)
+        {
+            if (!string.IsNullOrWhiteSpace(p.Codigo))
+            {
+                dictProductos[p.Codigo.Trim()] = p;
+            }
+        }
+
+        // Pre-detectar y crear categorías faltantes en lote
+        var nuevasCategorias = new Dictionary<string, Categoria>(StringComparer.OrdinalIgnoreCase);
+        for (int r = startRow; r < matriz.Count; r++)
+        {
+            var fila = matriz[r];
+            if (fila.Count == 0) continue;
+            string catNom = (colCategoria >= 0 && colCategoria < fila.Count) ? fila[colCategoria].Trim() : "General";
+            if (string.IsNullOrWhiteSpace(catNom)) catNom = "General";
+            string keyCat = catNom.ToLower();
+            if (!dictCategorias.ContainsKey(keyCat) && !nuevasCategorias.ContainsKey(keyCat))
+            {
+                nuevasCategorias[keyCat] = new Categoria
+                {
+                    Nombre = catNom,
+                    Descripcion = $"Categoría {catNom}",
+                    Icono = "fa-box",
+                    Estado = true
+                };
+            }
+        }
+
+        if (nuevasCategorias.Count > 0)
+        {
+            await context.Categorias.AddRangeAsync(nuevasCategorias.Values);
+            await context.SaveChangesAsync();
+            foreach (var kvp in nuevasCategorias)
+            {
+                dictCategorias[kvp.Key] = kvp.Value;
+            }
+        }
+
+        // Colección de imágenes locales únicas para sincronizar en segundo plano sin congelar la importación
+        var imagenesParaSubir = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         for (int r = startRow; r < matriz.Count; r++)
         {
             var fila = matriz[r];
@@ -1107,10 +1153,9 @@ public class ExcelExportService : IExcelExportService
                     if (!string.IsNullOrWhiteSpace(cleanFileName))
                     {
                         rutaImagenResuelta = $"uploads/products/{cleanFileName}";
-                        if (archivosLocales.TryGetValue(cleanFileName, out var localFullPath))
+                        if (archivosLocales.ContainsKey(cleanFileName))
                         {
-                            byte[] imgBytes = await File.ReadAllBytesAsync(localFullPath);
-                            await ProductService.SubirImagenAlServidorCloudAsync(cleanFileName, imgBytes);
+                            imagenesParaSubir.Add(cleanFileName);
                         }
                     }
                 }
@@ -1120,8 +1165,7 @@ public class ExcelExportService : IExcelExportService
                 // Asociación automática si la foto en C:\CoreasERP\uploads\products se llama igual que el Código/SKU
                 string matchedFileName = Path.GetFileName(matchedByCodePath);
                 rutaImagenResuelta = $"uploads/products/{matchedFileName}";
-                byte[] imgBytes = await File.ReadAllBytesAsync(matchedByCodePath);
-                await ProductService.SubirImagenAlServidorCloudAsync(matchedFileName, imgBytes);
+                imagenesParaSubir.Add(matchedFileName);
             }
 
             decimal costo = Math.Round(ParsearDecimalSeguro(GetCol(colCosto), 0.000m), 3, MidpointRounding.AwayFromZero);
@@ -1139,20 +1183,11 @@ public class ExcelExportService : IExcelExportService
 
             result.TotalProcesados++;
 
-            // Buscar o crear categoría
+            // Asignar categoría pre-cargada
             string keyCat = categoriaNombre.ToLower();
             if (!dictCategorias.TryGetValue(keyCat, out var cat))
             {
-                cat = new Categoria
-                {
-                    Nombre = categoriaNombre,
-                    Descripcion = $"Categoría {categoriaNombre}",
-                    Icono = "fa-box",
-                    Estado = true
-                };
-                await context.Categorias.AddAsync(cat);
-                await context.SaveChangesAsync();
-                dictCategorias[keyCat] = cat;
+                cat = dictCategorias.Values.FirstOrDefault() ?? new Categoria { IdCategoria = 1, Nombre = "General" };
             }
 
             decimal cantEmpaque = 1.000m;
@@ -1187,9 +1222,8 @@ public class ExcelExportService : IExcelExportService
 
             bool esGranel = (precioGranel.HasValue && precioGranel.Value > 0) || cantEmpaque > 1;
 
-            // Buscar si el producto ya existe por código
-            var prod = await context.Productos.FirstOrDefaultAsync(p => p.Codigo == codigo);
-            if (prod != null)
+            // Búsqueda instantánea en memoria O(1)
+            if (dictProductos.TryGetValue(codigo, out var prod))
             {
                 prod.Nombre = nombre;
                 prod.IdCategoria = cat.IdCategoria;
@@ -1244,11 +1278,32 @@ public class ExcelExportService : IExcelExportService
                     FechaCreacion = DateTime.Now
                 };
                 await context.Productos.AddAsync(prod);
+                dictProductos[codigo] = prod;
                 result.TotalInsertados++;
             }
         }
 
         await context.SaveChangesAsync();
+
+        // Subida asincrónica en segundo plano de imágenes locales sin bloquear la interfaz
+        if (imagenesParaSubir.Count > 0)
+        {
+            _ = Task.Run(async () =>
+            {
+                foreach (var fileName in imagenesParaSubir)
+                {
+                    if (archivosLocales.TryGetValue(fileName, out var localFullPath) && File.Exists(localFullPath))
+                    {
+                        try
+                        {
+                            byte[] imgBytes = await File.ReadAllBytesAsync(localFullPath);
+                            await ProductService.SubirImagenAlServidorCloudAsync(fileName, imgBytes);
+                        }
+                        catch { /* Ignorar fallos de red en background */ }
+                    }
+                }
+            });
+        }
         ProductService.SincronizarCarpetaImagenesLocal();
         result.Exitoso = true;
         result.Mensaje = $"Importación exitosa: {result.TotalProcesados} productos procesados ({result.TotalInsertados} nuevos creados, {result.TotalActualizados} actualizados).";
